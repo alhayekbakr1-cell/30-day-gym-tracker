@@ -5,11 +5,21 @@ An interactive, shift-friendly strength program for returning to the gym. The ch
 ## What is included
 
 - 30-day calendar that begins when the user presses **Start**
-- Three rotating full-body workouts with progressive overload guidance
+- Thirteen sessions across 30 days: three workouts per week with full recovery days
+- Flexible shift scheduling with safe date validation and one-tap day changes
+- Three rotating full-body workouts with automatic next-load guidance
 - Five-minute warm-up before every session, including an interactive timer
+- Automatic 60–90 second rest timer after completed sets
 - Checkable warm-up tasks, working-set logs, reps, load, reps in reserve, and notes
+- Previous-performance cards beside every exercise
+- One-tap equipment substitutions that preserve the matching form guide
+- Sleep, energy, and soreness check-ins with full, short, or postpone guidance
 - Short-sleep mode that condenses a session to about 20 minutes
 - Account-based progress sync across devices, with a local preview fallback
+- Sync diagnostics, JSON/CSV exports, and a protected challenge restart flow
+- Progress dashboard with consistency, volume, strength, weight, protein, and steps
+- Daily protein, steps, body weight, waist, and sleep tracking with editable goals
+- Installable phone experience with a custom Home Screen icon and app manifest
 - Responsive layout for phones, tablets, and desktop browsers
 - Accessible controls, keyboard-friendly disclosure panels, and reduced-motion support
 

@@ -9,19 +9,40 @@ import {
   useRef,
   useState,
 } from "react";
+import AppTools from "./AppTools";
+import ProgressDashboard from "./ProgressDashboard";
+import WellnessPanel from "./WellnessPanel";
 import type {
+  DailyMetric,
+  ProfileSettings,
   SetLog,
   SyncedProgress,
   TrackerState,
   WorkoutLog,
 } from "./tracker-types";
 import {
+  CHALLENGE_LENGTH_DAYS,
+  EXERCISE_LIBRARY,
+  EXERCISE_SUBSTITUTIONS,
   SCHEDULED_DAYS,
   WARMUP_ITEMS,
   WORKOUTS,
   workoutIdForDay,
   workoutIndexForDay,
 } from "./workout-data";
+import {
+  challengeDayForDate,
+  dayDifference,
+  defaultSchedule,
+  EMPTY_STATE,
+  isoDateOffset,
+  loadRecommendation,
+  localIsoDate,
+  mergeTrackerStates,
+  normalizeTrackerState,
+  previousPerformance,
+  scheduledDate,
+} from "./tracker-logic";
 import {
   EXERCISE_GUIDES,
   WARMUP_GUIDES,
@@ -37,38 +58,28 @@ type GymTrackerProps = {
   user: AuthUser;
 };
 
-const EMPTY_STATE: TrackerState = { startDate: null, workouts: {} };
-const scheduledDaySet = new Set<number>(SCHEDULED_DAYS);
-
 function nowIso() {
   return new Date().toISOString();
 }
 
-function localIsoDate(date = new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+function dateFromIso(date: string) {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(year, month - 1, day, 12);
 }
 
-function dateForChallengeDay(startDate: string, day: number) {
-  const [year, month, date] = startDate.split("-").map(Number);
-  return new Date(year, month - 1, date + day - 1, 12);
-}
-
-function shortDate(startDate: string, day: number) {
+function shortDate(date: string) {
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
-  }).format(dateForChallengeDay(startDate, day));
+  }).format(dateFromIso(date));
 }
 
-function longDate(startDate: string, day: number) {
+function longDate(date: string) {
   return new Intl.DateTimeFormat("en-US", {
     weekday: "long",
     month: "long",
     day: "numeric",
-  }).format(dateForChallengeDay(startDate, day));
+  }).format(dateFromIso(date));
 }
 
 function blankSet(): SetLog {
@@ -90,7 +101,9 @@ function createWorkoutLog(day: number): WorkoutLog {
     lowSleep: false,
     modifiedAt: new Date(0).toISOString(),
     note: "",
+    readiness: { energy: "", sleepHours: "", soreness: "" },
     sets,
+    substitutions: {},
     warmup: Object.fromEntries(WARMUP_ITEMS.map((item) => [item.id, false])),
   };
 }
@@ -109,37 +122,10 @@ function hydratedWorkoutLog(day: number, saved?: WorkoutLog): WorkoutLog {
   return {
     ...base,
     ...saved,
+    readiness: { ...base.readiness, ...saved.readiness },
     sets,
+    substitutions: { ...base.substitutions, ...saved.substitutions },
     warmup: { ...base.warmup, ...saved.warmup },
-  };
-}
-
-function mergeTrackerStates(
-  remote: TrackerState | null,
-  local: TrackerState,
-): TrackerState {
-  if (!remote) return local;
-  if (!local.startDate) return remote;
-  if (!remote.startDate) return local;
-
-  const workouts: Record<string, WorkoutLog> = {};
-  for (const day of SCHEDULED_DAYS) {
-    const key = String(day);
-    const remoteLog = remote.workouts[key];
-    const localLog = local.workouts[key];
-    if (!remoteLog) workouts[key] = localLog;
-    else if (!localLog) workouts[key] = remoteLog;
-    else {
-      workouts[key] =
-        Date.parse(localLog.modifiedAt) >= Date.parse(remoteLog.modifiedAt)
-          ? localLog
-          : remoteLog;
-    }
-  }
-
-  return {
-    startDate: remote.startDate || local.startDate,
-    workouts,
   };
 }
 
@@ -238,6 +224,7 @@ export default function GymTracker({
   signOutPath,
   user,
 }: GymTrackerProps) {
+  const isPreviewUser = user?.email === "preview@gym.local";
   const [tracker, setTracker] = useState<TrackerState>(EMPTY_STATE);
   const [selectedDay, setSelectedDay] = useState<number>(SCHEDULED_DAYS[0]);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(
@@ -245,6 +232,13 @@ export default function GymTracker({
   );
   const [warmupSeconds, setWarmupSeconds] = useState(300);
   const [warmupRunning, setWarmupRunning] = useState(false);
+  const [restDuration, setRestDuration] = useState(90);
+  const [restSeconds, setRestSeconds] = useState(90);
+  const [restRunning, setRestRunning] = useState(false);
+  const [restFinished, setRestFinished] = useState(false);
+  const [scheduleMessage, setScheduleMessage] = useState("");
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
+  const [syncVersion, setSyncVersion] = useState(0);
   const trackerRef = useRef(tracker);
   const versionRef = useRef(0);
   const savingRef = useRef(false);
@@ -256,6 +250,10 @@ export default function GymTracker({
 
   const loadProgress = useCallback(async () => {
     if (!user) return;
+    if (isPreviewUser) {
+      setSyncStatus("saved");
+      return;
+    }
     setSyncStatus("loading");
 
     try {
@@ -263,7 +261,9 @@ export default function GymTracker({
       if (!response.ok) throw new Error("load failed");
       const progress = (await response.json()) as SyncedProgress;
       versionRef.current = progress.version;
-      const next = progress.state ?? EMPTY_STATE;
+      setSyncVersion(progress.version);
+      setLastSyncedAt(progress.updatedAt);
+      const next = normalizeTrackerState(progress.state);
       trackerRef.current = next;
       setTracker(next);
       const firstIncomplete = SCHEDULED_DAYS.find(
@@ -274,7 +274,7 @@ export default function GymTracker({
     } catch {
       setSyncStatus("error");
     }
-  }, [user]);
+  }, [isPreviewUser, user]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => void loadProgress(), 0);
@@ -293,6 +293,11 @@ export default function GymTracker({
 
   const flushQueue = useCallback(async () => {
     if (!user || savingRef.current) return;
+    if (isPreviewUser) {
+      pendingRef.current = null;
+      setSyncStatus("saved");
+      return;
+    }
     savingRef.current = true;
 
     while (pendingRef.current) {
@@ -313,6 +318,8 @@ export default function GymTracker({
 
         if (response.status === 409) {
           versionRef.current = progress.version;
+          setSyncVersion(progress.version);
+          setLastSyncedAt(progress.updatedAt);
           stateToSave = mergeTrackerStates(progress.state, stateToSave);
           trackerRef.current = stateToSave;
           setTracker(stateToSave);
@@ -322,6 +329,8 @@ export default function GymTracker({
         if (!response.ok) throw new Error("save failed");
 
         versionRef.current = progress.version;
+        setSyncVersion(progress.version);
+        setLastSyncedAt(progress.updatedAt);
         setSyncStatus("saved");
       } catch {
         pendingRef.current = stateToSave;
@@ -331,7 +340,7 @@ export default function GymTracker({
     }
 
     savingRef.current = false;
-  }, [user]);
+  }, [isPreviewUser, user]);
 
   const mutateTracker = useCallback(
     (transform: (current: TrackerState) => TrackerState) => {
@@ -360,6 +369,22 @@ export default function GymTracker({
     return () => window.clearInterval(interval);
   }, [warmupRunning]);
 
+  useEffect(() => {
+    if (!restRunning) return;
+    const interval = window.setInterval(() => {
+      setRestSeconds((seconds) => {
+        if (seconds <= 1) {
+          setRestRunning(false);
+          setRestFinished(true);
+          if ("vibrate" in navigator) navigator.vibrate([180, 100, 180]);
+          return 0;
+        }
+        return seconds - 1;
+      });
+    }, 1_000);
+    return () => window.clearInterval(interval);
+  }, [restRunning]);
+
   const started = Boolean(tracker.startDate);
   const completedCount = SCHEDULED_DAYS.filter(
     (day) => tracker.workouts[String(day)]?.completed,
@@ -370,9 +395,30 @@ export default function GymTracker({
   const nextIncomplete =
     SCHEDULED_DAYS.find((day) => !tracker.workouts[String(day)]?.completed) ??
     SCHEDULED_DAYS[SCHEDULED_DAYS.length - 1];
+  const sessionNumber =
+    SCHEDULED_DAYS.indexOf(
+      selectedDay as (typeof SCHEDULED_DAYS)[number],
+    ) + 1;
+  const calendarWorkouts = useMemo(() => {
+    const mapped = new Map<number, number>();
+    for (const day of SCHEDULED_DAYS) {
+      if (!tracker.startDate) {
+        mapped.set(day, day);
+        continue;
+      }
+      const date = scheduledDate(tracker, day);
+      if (!date) continue;
+      const challengeDay = challengeDayForDate(tracker.startDate, date);
+      if (challengeDay >= 1 && challengeDay <= CHALLENGE_LENGTH_DAYS) {
+        mapped.set(challengeDay, day);
+      }
+    }
+    return mapped;
+  }, [tracker]);
 
   const workoutId = workoutIdForDay(selectedDay);
   const workout = WORKOUTS[workoutId];
+  const activeScheduledDate = scheduledDate(tracker, selectedDay);
   const activeLog = useMemo(
     () => hydratedWorkoutLog(selectedDay, tracker.workouts[String(selectedDay)]),
     [selectedDay, tracker.workouts],
@@ -381,6 +427,19 @@ export default function GymTracker({
   const visiblePairs = activeLog.lowSleep
     ? workout.pairs.slice(0, 2)
     : workout.pairs;
+  const sleepHours = Number(activeLog.readiness.sleepHours);
+  const energy = Number(activeLog.readiness.energy);
+  const soreness = Number(activeLog.readiness.soreness);
+  const shouldPostpone =
+    (sleepHours > 0 && sleepHours < 4) || energy === 1 || soreness === 5;
+  const shouldUseShortMode =
+    !shouldPostpone &&
+    ((sleepHours > 0 && sleepHours < 6) ||
+      (energy > 0 && energy <= 2) ||
+      soreness >= 4);
+  const restPercent = restDuration
+    ? Math.round((restSeconds / restDuration) * 100)
+    : 0;
 
   const readyToComplete = useMemo(() => {
     const warmupReady = WARMUP_ITEMS.every(
@@ -424,6 +483,7 @@ export default function GymTracker({
   const chooseDay = (day: number, scroll = true) => {
     setWarmupRunning(false);
     setWarmupSeconds(300);
+    setScheduleMessage("");
     setSelectedDay(day);
     if (scroll) {
       window.setTimeout(() => {
@@ -445,8 +505,14 @@ export default function GymTracker({
       return;
     }
 
+    const startDate = localIsoDate();
     const next: TrackerState = {
-      startDate: localIsoDate(),
+      ...EMPTY_STATE,
+      dailyMetrics: trackerRef.current.dailyMetrics,
+      profile: trackerRef.current.profile,
+      schedule: defaultSchedule(startDate),
+      scheduleModifiedAt: nowIso(),
+      startDate,
       workouts: {},
     };
     setWarmupRunning(false);
@@ -473,6 +539,7 @@ export default function GymTracker({
     exerciseId: string,
     setIndex: number,
     patch: Partial<SetLog>,
+    suggestedRest = 90,
   ) => {
     updateWorkout(selectedDay, (log) => {
       const currentSets = [...(log.sets[exerciseId] ?? [])];
@@ -485,6 +552,12 @@ export default function GymTracker({
         sets: { ...log.sets, [exerciseId]: currentSets },
       };
     });
+    if (patch.done === true) {
+      setRestDuration(suggestedRest);
+      setRestSeconds(suggestedRest);
+      setRestFinished(false);
+      setRestRunning(true);
+    }
   };
 
   const toggleLowSleep = () => {
@@ -494,6 +567,139 @@ export default function GymTracker({
       completedAt: null,
       lowSleep: !log.lowSleep,
     }));
+  };
+
+  const setLowSleep = (lowSleep: boolean) => {
+    updateWorkout(selectedDay, (log) => ({
+      ...log,
+      completed: false,
+      completedAt: null,
+      lowSleep,
+    }));
+  };
+
+  const updateReadiness = (
+    field: "energy" | "sleepHours" | "soreness",
+    value: string,
+  ) => {
+    updateWorkout(selectedDay, (log) => ({
+      ...log,
+      readiness: { ...log.readiness, [field]: value },
+    }));
+  };
+
+  const setSubstitution = (slotId: string, effectiveId: string) => {
+    updateWorkout(selectedDay, (log) => {
+      const substitutions = { ...log.substitutions };
+      if (effectiveId === slotId) delete substitutions[slotId];
+      else substitutions[slotId] = effectiveId;
+      return {
+        ...log,
+        completed: false,
+        completedAt: null,
+        sets: {
+          ...log.sets,
+          [slotId]: [blankSet(), blankSet(), blankSet()],
+        },
+        substitutions,
+      };
+    });
+  };
+
+  const rescheduleWorkout = (date: string) => {
+    if (!tracker.startDate || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+    if (activeLog.completed) {
+      setScheduleMessage("Completed sessions keep their original date.");
+      return;
+    }
+    const challengeDay = challengeDayForDate(tracker.startDate, date);
+    if (challengeDay < 1 || challengeDay > CHALLENGE_LENGTH_DAYS) {
+      setScheduleMessage("Choose a date inside this 30-day challenge.");
+      return;
+    }
+    const index = SCHEDULED_DAYS.indexOf(
+      selectedDay as (typeof SCHEDULED_DAYS)[number],
+    );
+    const previousDay = SCHEDULED_DAYS[index - 1];
+    const nextDay = SCHEDULED_DAYS[index + 1];
+    const previousDate = previousDay
+      ? scheduledDate(tracker, previousDay)
+      : null;
+    const nextDate = nextDay ? scheduledDate(tracker, nextDay) : null;
+    if (previousDate && dayDifference(previousDate, date) < 2) {
+      setScheduleMessage("Keep at least one full recovery day after the prior session.");
+      return;
+    }
+    if (nextDate && dayDifference(date, nextDate) < 2) {
+      setScheduleMessage("Keep at least one full recovery day before the next session.");
+      return;
+    }
+    mutateTracker((current) => ({
+      ...current,
+      schedule: { ...current.schedule, [String(selectedDay)]: date },
+      scheduleModifiedAt: nowIso(),
+    }));
+    setScheduleMessage(`Moved to ${longDate(date)}.`);
+  };
+
+  const updateDailyMetric = (date: string, patch: Partial<DailyMetric>) => {
+    mutateTracker((current) => ({
+      ...current,
+      dailyMetrics: {
+        ...current.dailyMetrics,
+        [date]: {
+          modifiedAt: nowIso(),
+          protein: "",
+          sleepHours: "",
+          steps: "",
+          waist: "",
+          weight: "",
+          ...current.dailyMetrics[date],
+          ...patch,
+        },
+      },
+    }));
+  };
+
+  const updateProfile = (patch: Partial<ProfileSettings>) => {
+    mutateTracker((current) => ({
+      ...current,
+      profile: { ...current.profile, ...patch, modifiedAt: nowIso() },
+    }));
+  };
+
+  const resetChallenge = () => {
+    const current = trackerRef.current;
+    const next: TrackerState = {
+      ...EMPTY_STATE,
+      dailyMetrics: current.dailyMetrics,
+      profile: current.profile,
+    };
+    setSelectedDay(SCHEDULED_DAYS[0]);
+    setWarmupRunning(false);
+    setWarmupSeconds(300);
+    setRestRunning(false);
+    setRestSeconds(restDuration);
+    mutateTracker(() => next);
+  };
+
+  const runSyncCheck = async () => {
+    if (!user) return false;
+    if (isPreviewUser) return true;
+    if (pendingRef.current) await flushQueue();
+    try {
+      const response = await fetch("/api/progress", { cache: "no-store" });
+      if (!response.ok) throw new Error("sync check failed");
+      const progress = (await response.json()) as SyncedProgress;
+      versionRef.current = progress.version;
+      setSyncVersion(progress.version);
+      setLastSyncedAt(progress.updatedAt);
+      setSyncStatus("saved");
+      return true;
+    } catch {
+      setSyncStatus("error");
+      return false;
+    }
   };
 
   const completeWorkout = () => {
@@ -581,7 +787,7 @@ export default function GymTracker({
               </button>
               {!user && <span>Sign in once to keep every log synced.</span>}
               {started && tracker.startDate && (
-                <span>Started {shortDate(tracker.startDate, 1)}</span>
+                <span>Started {shortDate(tracker.startDate)}</span>
               )}
             </div>
           </article>
@@ -626,12 +832,15 @@ export default function GymTracker({
           </div>
 
           <div className="calendar-grid">
-            {Array.from({ length: 30 }, (_, index) => index + 1).map((day) => {
-              const isWorkout = scheduledDaySet.has(day);
-              const log = tracker.workouts[String(day)];
+            {Array.from({ length: CHALLENGE_LENGTH_DAYS }, (_, index) => index + 1).map((day) => {
+              const sessionDay = calendarWorkouts.get(day);
+              const isWorkout = Boolean(sessionDay);
+              const log = sessionDay
+                ? tracker.workouts[String(sessionDay)]
+                : undefined;
               const isDone = Boolean(log?.completed);
               const actualDate = tracker.startDate
-                ? shortDate(tracker.startDate, day)
+                ? shortDate(isoDateOffset(tracker.startDate, day - 1))
                 : null;
 
               if (!isWorkout) {
@@ -643,35 +852,41 @@ export default function GymTracker({
                 );
               }
 
-              const id = workoutIdForDay(day);
+              const id = workoutIdForDay(sessionDay!);
+              const sessionIndex =
+                SCHEDULED_DAYS.indexOf(
+                  sessionDay as (typeof SCHEDULED_DAYS)[number],
+                ) + 1;
               return (
                 <button
-                  className={`day-cell workout-day ${selectedDay === day ? "is-selected" : ""} ${isDone ? "is-done" : ""}`}
+                  className={`day-cell workout-day ${selectedDay === sessionDay ? "is-selected" : ""} ${isDone ? "is-done" : ""}`}
                   key={day}
                   type="button"
-                  aria-pressed={selectedDay === day}
-                  aria-label={`Day ${day}, workout ${id}${isDone ? ", completed" : ""}`}
-                  onClick={() => chooseDay(day)}
+                  aria-pressed={selectedDay === sessionDay}
+                  aria-label={`Day ${day}, session ${sessionIndex}, workout ${id}${isDone ? ", completed" : ""}`}
+                  onClick={() => chooseDay(sessionDay!)}
                 >
                   <span className="day-number">{day}</span>
                   <span className="day-check" aria-hidden="true">{isDone ? "✓" : ""}</span>
                   <strong>{id}</strong>
-                  <small>{actualDate ?? `Workout ${id}`}</small>
+                  <small>{actualDate ?? `Session ${sessionIndex}`}</small>
                 </button>
               );
             })}
           </div>
         </section>
 
+        <ProgressDashboard tracker={tracker} />
+
         <section className="workout-layout" id="workout-detail" aria-labelledby="workout-title">
           <article className="card workout-card">
             <div className="workout-header">
               <div>
-                <p className="eyebrow">Day {selectedDay}</p>
+                <p className="eyebrow">Session {sessionNumber} of {SCHEDULED_DAYS.length}</p>
                 <h2 id="workout-title">Workout {workoutId}</h2>
                 <p>
-                  {tracker.startDate
-                    ? longDate(tracker.startDate, selectedDay)
+                  {activeScheduledDate
+                    ? longDate(activeScheduledDate)
                     : workout.subtitle}
                 </p>
               </div>
@@ -681,12 +896,110 @@ export default function GymTracker({
               </div>
             </div>
 
+            {started && tracker.startDate && activeScheduledDate && (
+              <div className="schedule-editor">
+                <div>
+                  <strong>Shift changed?</strong>
+                  <span>Move this session while keeping a full recovery day on both sides.</span>
+                </div>
+                <div className="schedule-controls">
+                  <button
+                    aria-label="Move workout one day earlier"
+                    disabled={activeLog.completed}
+                    type="button"
+                    onClick={() => rescheduleWorkout(isoDateOffset(activeScheduledDate, -1))}
+                  >
+                    −1 day
+                  </button>
+                  <label>
+                    <span className="sr-only">Workout date</span>
+                    <input
+                      disabled={activeLog.completed}
+                      max={isoDateOffset(tracker.startDate, CHALLENGE_LENGTH_DAYS - 1)}
+                      min={tracker.startDate}
+                      type="date"
+                      value={activeScheduledDate}
+                      onChange={(event) => rescheduleWorkout(event.target.value)}
+                    />
+                  </label>
+                  <button
+                    aria-label="Move workout one day later"
+                    disabled={activeLog.completed}
+                    type="button"
+                    onClick={() => rescheduleWorkout(isoDateOffset(activeScheduledDate, 1))}
+                  >
+                    +1 day
+                  </button>
+                </div>
+                {scheduleMessage && <small role="status">{scheduleMessage}</small>}
+              </div>
+            )}
+
             {!started && (
               <div className="start-notice">
                 <strong>Preview mode</strong>
                 <span>Start the challenge to check off your warm-up and log sets.</span>
               </div>
             )}
+
+            <section className="readiness-panel" aria-labelledby="readiness-title">
+              <div className="readiness-copy">
+                <p className="eyebrow">60-second check-in</p>
+                <h3 id="readiness-title">How ready are you today?</h3>
+                <span>Your answers guide the full, short, or postpone recommendation.</span>
+              </div>
+              <div className="readiness-fields">
+                <label>
+                  <span>Sleep</span>
+                  <div><input disabled={!started} inputMode="decimal" max="12" min="0" placeholder="—" type="number" value={activeLog.readiness.sleepHours} onChange={(event) => updateReadiness("sleepHours", event.target.value)} /><b>hours</b></div>
+                </label>
+                <label>
+                  <span>Energy</span>
+                  <select disabled={!started} value={activeLog.readiness.energy} onChange={(event) => updateReadiness("energy", event.target.value)}>
+                    <option value="">Choose</option>
+                    <option value="1">1 · drained</option>
+                    <option value="2">2 · low</option>
+                    <option value="3">3 · okay</option>
+                    <option value="4">4 · good</option>
+                    <option value="5">5 · excellent</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Soreness</span>
+                  <select disabled={!started} value={activeLog.readiness.soreness} onChange={(event) => updateReadiness("soreness", event.target.value)}>
+                    <option value="">Choose</option>
+                    <option value="1">1 · none</option>
+                    <option value="2">2 · mild</option>
+                    <option value="3">3 · moderate</option>
+                    <option value="4">4 · high</option>
+                    <option value="5">5 · severe</option>
+                  </select>
+                </label>
+              </div>
+              <div className={`readiness-result ${shouldPostpone ? "postpone" : shouldUseShortMode ? "short" : "ready"}`} aria-live="polite">
+                <div>
+                  <strong>
+                    {shouldPostpone
+                      ? "Best call: postpone today"
+                      : shouldUseShortMode
+                        ? "Recommended: 20-minute mode"
+                        : sleepHours || energy || soreness
+                          ? "Full session looks reasonable"
+                          : "Complete the check-in for a recommendation"}
+                  </strong>
+                  <span>
+                    {shouldPostpone
+                      ? "Recovery is the productive choice. Move this session to the next valid day above."
+                      : shouldUseShortMode
+                        ? "Use two pairs, two sets each, and keep about 3 reps in reserve."
+                        : "Use the full plan if your warm-up feels normal and pain-free."}
+                  </span>
+                </div>
+                {shouldUseShortMode && !activeLog.lowSleep && (
+                  <button disabled={!started} type="button" onClick={() => setLowSleep(true)}>Apply short mode</button>
+                )}
+              </div>
+            </section>
 
             <section className="warmup-panel" aria-labelledby="warmup-title">
               <div className="warmup-topline">
@@ -770,6 +1083,65 @@ export default function GymTracker({
               </label>
             </div>
 
+            <section className={`rest-timer-panel ${restFinished ? "is-finished" : ""}`} aria-labelledby="rest-timer-title">
+              <div
+                className="rest-timer-ring"
+                style={{ "--rest-progress": `${restPercent * 3.6}deg` } as CSSProperties}
+                aria-hidden="true"
+              >
+                <strong>{formatTimer(restSeconds)}</strong>
+              </div>
+              <div className="rest-timer-copy">
+                <p className="eyebrow">Automatic between sets</p>
+                <h3 id="rest-timer-title">{restFinished ? "Rest complete—next clean set." : "Rest timer"}</h3>
+                <span>It starts when you check off a set: 90 seconds for the first two pairs, 60 seconds for accessories.</span>
+              </div>
+              <div className="rest-timer-actions">
+                <div className="rest-presets" aria-label="Rest duration">
+                  {[60, 75, 90].map((duration) => (
+                    <button
+                      aria-pressed={restDuration === duration}
+                      className={restDuration === duration ? "is-active" : ""}
+                      key={duration}
+                      type="button"
+                      onClick={() => {
+                        setRestDuration(duration);
+                        setRestSeconds(duration);
+                        setRestFinished(false);
+                        setRestRunning(false);
+                      }}
+                    >
+                      {duration}s
+                    </button>
+                  ))}
+                </div>
+                <div>
+                  <button
+                    disabled={!started}
+                    type="button"
+                    onClick={() => {
+                      if (restSeconds === 0) setRestSeconds(restDuration);
+                      setRestFinished(false);
+                      setRestRunning((running) => !running);
+                    }}
+                  >
+                    {restRunning ? "Pause" : "Start"}
+                  </button>
+                  <button
+                    disabled={!started || (restSeconds === restDuration && !restRunning)}
+                    type="button"
+                    onClick={() => {
+                      setRestRunning(false);
+                      setRestFinished(false);
+                      setRestSeconds(restDuration);
+                    }}
+                  >
+                    Reset
+                  </button>
+                </div>
+              </div>
+            </section>
+
             <div className="form-guide-intro">
               <span aria-hidden="true">◎</span>
               <div>
@@ -804,7 +1176,26 @@ export default function GymTracker({
                         activeLog.lowSleep,
                       );
                       const exerciseSets = activeLog.sets[exercise.id] ?? [];
-                      const guide = EXERCISE_GUIDES[exercise.id];
+                      const effectiveId =
+                        activeLog.substitutions[exercise.id] ?? exercise.id;
+                      const displayedExercise =
+                        EXERCISE_LIBRARY[effectiveId] ?? exercise;
+                      const guide = EXERCISE_GUIDES[effectiveId];
+                      const previous = previousPerformance(
+                        tracker,
+                        selectedDay,
+                        exercise.id,
+                        effectiveId,
+                      );
+                      const recommendation = loadRecommendation(
+                        effectiveId,
+                        previous,
+                      );
+                      const substitutionOptions =
+                        EXERCISE_SUBSTITUTIONS[exercise.id] ?? [];
+                      const hasLoggedSet = exerciseSets.some(
+                        (set) => set.done || set.load || set.reps || set.rir,
+                      );
 
                       return (
                         <article className="exercise-card" key={exercise.id}>
@@ -812,23 +1203,62 @@ export default function GymTracker({
                             <div>
                               <span className="exercise-number">{exerciseIndex + 1}</span>
                               <div>
-                                <h4>{exercise.name}</h4>
-                                <strong>{exercise.reps}</strong>
+                                <h4>{displayedExercise.name}</h4>
+                                <strong>{displayedExercise.reps}</strong>
                               </div>
                             </div>
-                            <p>{exercise.cue}</p>
-                            {exercise.alternative && (
+                            <p>{displayedExercise.cue}</p>
+                            {substitutionOptions.length > 0 ? (
+                              <label className="substitution-control">
+                                <span>Equipment occupied?</span>
+                                <select
+                                  aria-label={`Choose an alternative for ${exercise.name}`}
+                                  disabled={!started || hasLoggedSet}
+                                  value={effectiveId}
+                                  onChange={(event) => setSubstitution(exercise.id, event.target.value)}
+                                >
+                                  <option value={exercise.id}>Original · {exercise.name}</option>
+                                  {substitutionOptions.map((optionId) => (
+                                    <option key={optionId} value={optionId}>
+                                      Swap · {EXERCISE_LIBRARY[optionId]?.name ?? optionId}
+                                    </option>
+                                  ))}
+                                </select>
+                                {hasLoggedSet && <small>Clear this session&apos;s set entries before swapping.</small>}
+                              </label>
+                            ) : exercise.alternative ? (
                               <small>Alternative: {exercise.alternative}</small>
-                            )}
+                            ) : null}
                           </div>
 
-                          <div className="set-table" role="group" aria-label={`${exercise.name} set log`}>
+                          <div className={`performance-card ${recommendation.kind}`}>
+                            <div>
+                              <span>Last time</span>
+                              {previous ? (
+                                <div className="previous-sets">
+                                  {previous.sets.map((set, index) => (
+                                    <b key={`${set.load}-${set.reps}-${index}`}>
+                                      {set.load ? `${set.load} lb · ` : ""}{set.reps} {/(sec)/i.test(displayedExercise.reps) ? "sec" : "reps"}{set.rir ? ` · ${set.rir} RIR` : ""}
+                                    </b>
+                                  ))}
+                                </div>
+                              ) : (
+                                <strong>No prior set logged</strong>
+                              )}
+                            </div>
+                            <div>
+                              <span>Today&apos;s suggestion</span>
+                              <strong>{recommendation.text}</strong>
+                            </div>
+                          </div>
+
+                          <div className="set-table" role="group" aria-label={`${displayedExercise.name} set log`}>
                             <div className="set-head" aria-hidden="true">
                               <span>Set</span><span>Load</span><span>Reps</span><span>RIR</span><span>Done</span>
                             </div>
                             {Array.from({ length: setCount }, (_, setIndex) => {
                               const set = exerciseSets[setIndex] ?? blankSet();
-                              const label = `${exercise.name}, set ${setIndex + 1}`;
+                              const label = `${displayedExercise.name}, set ${setIndex + 1}`;
                               return (
                                 <div className="set-row" key={setIndex}>
                                   <strong>{setIndex + 1}</strong>
@@ -877,7 +1307,14 @@ export default function GymTracker({
                                       type="checkbox"
                                       checked={set.done}
                                       disabled={!started}
-                                      onChange={() => updateSet(exercise.id, setIndex, { done: !set.done })}
+                                      onChange={() =>
+                                        updateSet(
+                                          exercise.id,
+                                          setIndex,
+                                          { done: !set.done },
+                                          pairIndex < 2 ? 90 : 60,
+                                        )
+                                      }
                                     />
                                     <span className="control-check" aria-hidden="true" />
                                   </label>
@@ -970,6 +1407,24 @@ export default function GymTracker({
             </article>
           </aside>
         </section>
+
+        <WellnessPanel
+          onMetricChange={updateDailyMetric}
+          onProfileChange={updateProfile}
+          started={started}
+          tracker={tracker}
+        />
+
+        <AppTools
+          lastSyncedAt={lastSyncedAt}
+          onReset={resetChallenge}
+          onSyncCheck={runSyncCheck}
+          started={started}
+          syncStatus={syncStatus}
+          syncVersion={syncVersion}
+          tracker={tracker}
+          user={user}
+        />
       </div>
 
       <div className="sr-only" aria-live="polite">

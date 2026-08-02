@@ -24,6 +24,8 @@ export const SCHEDULED_DAYS = [
   1, 3, 5, 8, 10, 12, 15, 17, 19, 22, 24, 26, 29,
 ] as const;
 
+export const CHALLENGE_LENGTH_DAYS = 30;
+
 export const WARMUP_ITEMS = [
   { id: "cardio", label: "3 min easy cardio", detail: "Treadmill, bike, or elliptical" },
   { id: "squats", label: "8 bodyweight squats", detail: "Sit toward a bench and keep your whole foot planted" },
@@ -122,6 +124,29 @@ export const WORKOUTS: Record<WorkoutId, WorkoutPlan> = {
       },
     ],
   },
+};
+
+export const EXERCISE_LIBRARY: Record<string, Exercise> = Object.fromEntries(
+  Object.values(WORKOUTS).flatMap((workout) =>
+    workout.pairs.flatMap((pair) =>
+      pair.exercises.map((exercise) => [exercise.id, exercise]),
+    ),
+  ),
+);
+
+export const EXERCISE_SUBSTITUTIONS: Record<string, readonly string[]> = {
+  "leg-press": ["split-squat"],
+  "flat-db-bench": ["machine-press", "incline-db-bench"],
+  "db-rdl": ["db-hip-thrust", "leg-curl"],
+  "lat-pulldown": ["one-arm-row", "seated-row"],
+  "split-squat": ["leg-press"],
+  "incline-db-bench": ["machine-press", "flat-db-bench"],
+  "leg-curl": ["db-hip-thrust", "db-rdl"],
+  "seated-row": ["one-arm-row", "lat-pulldown"],
+  "leg-press-c": ["split-squat"],
+  "machine-press": ["flat-db-bench", "incline-db-bench"],
+  "db-hip-thrust": ["db-rdl", "leg-curl"],
+  "one-arm-row": ["seated-row", "lat-pulldown"],
 };
 
 export function workoutIdForDay(day: number): WorkoutId {
