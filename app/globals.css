@@ -784,6 +784,27 @@ input:disabled + .control-check {
   margin-top: 3px;
 }
 
+.warmup-form-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 10px;
+}
+
+.warmup-form-guide {
+  background: rgba(247, 250, 244, 0.82);
+  grid-column: auto;
+}
+
+.warmup-form-guide .form-guide-body {
+  grid-template-columns: 1fr;
+}
+
+.warmup-form-guide .form-figure {
+  border-bottom: 1px solid #d8e2d6;
+  border-right: 0;
+}
+
 .session-mode {
   align-items: center;
   background: var(--surface-sage);
@@ -865,6 +886,46 @@ input:disabled + .control-check {
 .switch-control b {
   font-size: 0.82rem;
   white-space: nowrap;
+}
+
+.form-guide-intro {
+  align-items: center;
+  background: linear-gradient(110deg, #f4f7ef, #fff8ec);
+  border: 1px solid #c8d5c7;
+  border-radius: 14px;
+  display: grid;
+  gap: 13px;
+  grid-template-columns: 38px 1fr;
+  margin-top: 14px;
+  padding: 14px 16px;
+}
+
+.form-guide-intro > span {
+  align-items: center;
+  background: var(--forest-900);
+  border-radius: 50%;
+  color: white;
+  display: inline-flex;
+  font-size: 1.15rem;
+  height: 38px;
+  justify-content: center;
+  width: 38px;
+}
+
+.form-guide-intro > div {
+  display: grid;
+  gap: 2px;
+}
+
+.form-guide-intro strong {
+  color: var(--forest-900);
+  font-size: 0.92rem;
+}
+
+.form-guide-intro > div > span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.35;
 }
 
 .pairs-stack {
@@ -974,6 +1035,235 @@ input:disabled + .control-check {
   font-size: 0.75rem;
   font-weight: 650;
   margin: 6px 0 0 36px;
+}
+
+.form-guide {
+  background: #f7faf4;
+  border: 1px solid #c8d6c8;
+  border-radius: 13px;
+  grid-column: 1 / -1;
+  overflow: hidden;
+}
+
+.form-guide > summary {
+  align-items: center;
+  cursor: pointer;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 30px 1fr auto;
+  list-style: none;
+  min-height: 58px;
+  padding: 10px 13px;
+}
+
+.form-guide > summary::-webkit-details-marker {
+  display: none;
+}
+
+.form-guide > summary:hover {
+  background: #eff5eb;
+}
+
+.form-guide > summary > span:nth-child(2) {
+  display: grid;
+  gap: 1px;
+}
+
+.form-guide > summary strong {
+  color: var(--forest-900);
+  font-size: 0.87rem;
+}
+
+.form-guide > summary small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.form-guide > summary b {
+  color: var(--forest-700);
+  font-size: 0.75rem;
+}
+
+.form-guide[open] > summary b {
+  font-size: 0;
+}
+
+.form-guide[open] > summary b::after {
+  content: "Close";
+  font-size: 0.75rem;
+}
+
+.form-guide-symbol {
+  align-items: center;
+  background: var(--forest-900);
+  border-radius: 50%;
+  color: white;
+  display: inline-flex;
+  font-size: 0.65rem;
+  height: 30px;
+  justify-content: center;
+  transition: transform 160ms ease;
+  width: 30px;
+}
+
+.form-guide[open] .form-guide-symbol {
+  transform: rotate(90deg);
+}
+
+.form-guide-body {
+  border-top: 1px solid #d8e2d6;
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(300px, 0.88fr);
+}
+
+.form-figure {
+  align-self: start;
+  background: #f4eadb;
+  border-right: 1px solid #d8e2d6;
+  margin: 0;
+  min-width: 0;
+}
+
+.form-figure img {
+  display: block;
+  height: auto;
+  width: 100%;
+}
+
+.form-figure figcaption {
+  align-items: center;
+  background: var(--forest-900);
+  color: white;
+  display: grid;
+  font-size: 0.7rem;
+  font-weight: 750;
+  grid-template-columns: 1fr 32px 1fr;
+  letter-spacing: 0.02em;
+  padding: 8px 12px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.form-figure figcaption i {
+  color: #ef9b6e;
+  font-size: 1rem;
+  font-style: normal;
+}
+
+.form-instructions {
+  display: grid;
+  gap: 13px;
+  padding: 16px;
+}
+
+.setup-note {
+  border-left: 3px solid var(--orange);
+  display: grid;
+  gap: 3px;
+  padding-left: 10px;
+}
+
+.setup-note > span {
+  color: var(--orange-hover);
+  font-size: 0.69rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.setup-note p,
+.form-instructions li p {
+  color: var(--ink);
+  font-size: 0.8rem;
+  line-height: 1.38;
+  margin: 0;
+}
+
+.form-instructions ol {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.form-instructions ol li {
+  align-items: flex-start;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 23px 1fr;
+}
+
+.form-instructions ol li > span {
+  align-items: center;
+  background: #e5eee2;
+  border: 1px solid #c0d0bd;
+  border-radius: 50%;
+  color: var(--forest-900);
+  display: inline-flex;
+  font-size: 0.7rem;
+  font-weight: 800;
+  height: 23px;
+  justify-content: center;
+  margin-top: 1px;
+  width: 23px;
+}
+
+.self-check {
+  background: #fff8ec;
+  border: 1px solid #ead7bb;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.self-check strong {
+  color: var(--forest-900);
+  font-size: 0.78rem;
+}
+
+.self-check ul {
+  display: grid;
+  gap: 4px;
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+
+.self-check li {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  padding-left: 16px;
+  position: relative;
+}
+
+.self-check li::before {
+  color: var(--orange-hover);
+  content: "✓";
+  font-weight: 900;
+  left: 0;
+  position: absolute;
+}
+
+.guide-footer {
+  border-top: 1px solid #d8e2d6;
+  display: grid;
+  gap: 6px;
+  padding-top: 10px;
+}
+
+.guide-footer > span {
+  color: #8e3d31;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.guide-footer a {
+  color: var(--forest-700);
+  font-size: 0.74rem;
+  font-weight: 750;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
 }
 
 .set-table {
@@ -1212,6 +1502,15 @@ input:disabled + .control-check {
     grid-template-columns: 1fr;
   }
 
+  .form-guide-body {
+    grid-template-columns: 1fr;
+  }
+
+  .form-figure {
+    border-bottom: 1px solid #d8e2d6;
+    border-right: 0;
+  }
+
   .exercise-info p,
   .exercise-info > small {
     margin-left: 36px;
@@ -1274,6 +1573,7 @@ input:disabled + .control-check {
   }
 
   .warmup-list,
+  .warmup-form-grid,
   .side-column {
     grid-template-columns: 1fr;
   }
@@ -1381,6 +1681,23 @@ input:disabled + .control-check {
   }
 
   .exercise-card {
+    padding: 14px;
+  }
+
+  .form-guide > summary {
+    grid-template-columns: 30px 1fr;
+  }
+
+  .form-guide > summary b {
+    display: none;
+  }
+
+  .form-guide-body {
+    margin-left: -1px;
+    margin-right: -1px;
+  }
+
+  .form-instructions {
     padding: 14px;
   }
 

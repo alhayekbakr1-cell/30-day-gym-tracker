@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import {
   type CSSProperties,
   useCallback,
@@ -21,6 +22,11 @@ import {
   workoutIdForDay,
   workoutIndexForDay,
 } from "./workout-data";
+import {
+  EXERCISE_GUIDES,
+  WARMUP_GUIDES,
+  type ExerciseGuide,
+} from "./exercise-guides";
 
 type AuthUser = { email: string; name: string } | null;
 type SyncStatus = "error" | "loading" | "saved" | "syncing";
@@ -149,6 +155,82 @@ function sleepModeExerciseLimit(lowSleep: boolean) {
 function workingSetCount(day: number, exerciseIndex: number, lowSleep: boolean) {
   if (lowSleep) return 2;
   return workoutIndexForDay(day) < 6 || exerciseIndex >= 4 ? 2 : 3;
+}
+
+function FormGuide({
+  className = "",
+  guide,
+  label = "Visual form guide",
+}: {
+  className?: string;
+  guide: ExerciseGuide;
+  label?: string;
+}) {
+  return (
+    <details className={`form-guide ${className}`.trim()}>
+      <summary>
+        <span className="form-guide-symbol" aria-hidden="true">
+          ▶
+        </span>
+        <span>
+          <strong>{label}</strong>
+          <small>Start → finish · steps · self-check</small>
+        </span>
+        <b>Open</b>
+      </summary>
+
+      <div className="form-guide-body">
+        <figure className="form-figure">
+          <Image
+            alt={guide.imageAlt}
+            height={900}
+            loading="lazy"
+            sizes="(max-width: 960px) 100vw, 720px"
+            src={guide.image}
+            unoptimized
+            width={1600}
+          />
+          <figcaption>
+            <span>Start position</span>
+            <i aria-hidden="true">→</i>
+            <span>Finish position</span>
+          </figcaption>
+        </figure>
+
+        <div className="form-instructions">
+          <div className="setup-note">
+            <span>Set up</span>
+            <p>{guide.setup}</p>
+          </div>
+
+          <ol>
+            {guide.steps.map((step, stepIndex) => (
+              <li key={step}>
+                <span>{stepIndex + 1}</span>
+                <p>{step}</p>
+              </li>
+            ))}
+          </ol>
+
+          <div className="self-check">
+            <strong>Quick self-check</strong>
+            <ul>
+              {guide.checks.map((check) => (
+                <li key={check}>{check}</li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="guide-footer">
+            <span>Stop for sharp pain, dizziness, or loss of control.</span>
+            <a href={guide.reference.url} rel="noreferrer" target="_blank">
+              {guide.reference.label} <span aria-hidden="true">↗</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </details>
+  );
 }
 
 export default function GymTracker({
@@ -651,6 +733,21 @@ export default function GymTracker({
                   </label>
                 ))}
               </div>
+
+              <div className="warmup-form-grid" aria-label="Warm-up movement guides">
+                {WARMUP_ITEMS.map((item) => {
+                  const guide = WARMUP_GUIDES[item.id];
+                  if (!guide) return null;
+                  return (
+                    <FormGuide
+                      className="warmup-form-guide"
+                      guide={guide}
+                      key={item.id}
+                      label={`Visual: ${item.label}`}
+                    />
+                  );
+                })}
+              </div>
             </section>
 
             <div className="session-mode">
@@ -671,6 +768,18 @@ export default function GymTracker({
                 <span aria-hidden="true" />
                 <b>{activeLog.lowSleep ? "20-min mode on" : "Full session"}</b>
               </label>
+            </div>
+
+            <div className="form-guide-intro">
+              <span aria-hidden="true">◎</span>
+              <div>
+                <strong>Visual form guides are built in.</strong>
+                <span>
+                  Open the guide under any exercise before your first set. Use
+                  a light practice set—an illustration cannot certify technique
+                  as precisely as an in-person trainer watching you move.
+                </span>
+              </div>
             </div>
 
             <div className="pairs-stack">
@@ -695,6 +804,7 @@ export default function GymTracker({
                         activeLog.lowSleep,
                       );
                       const exerciseSets = activeLog.sets[exercise.id] ?? [];
+                      const guide = EXERCISE_GUIDES[exercise.id];
 
                       return (
                         <article className="exercise-card" key={exercise.id}>
@@ -775,6 +885,8 @@ export default function GymTracker({
                               );
                             })}
                           </div>
+
+                          {guide && <FormGuide guide={guide} />}
                         </article>
                       );
                     })}
