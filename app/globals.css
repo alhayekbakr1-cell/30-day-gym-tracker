@@ -3843,3 +3843,30 @@ details summary:focus-visible,.history-link:focus-visible { outline:3px solid #2
 .cardio-log-form:focus-visible { outline:3px solid var(--forest-700); outline-offset:3px; }
 
 @media(max-width:760px) { .workout-first .workout-home-heading { flex-wrap:wrap; } .workout-first .workout-home-heading > div:last-child { max-width:100%; } }
+
+/* Cardio follows the same field-and-Done pattern as lifting. */
+.cardio-panel { background:#fffdf7; border:1px solid var(--divider); border-radius:14px; }
+.cardio-inline-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:20px 20px 4px; }
+.cardio-inline-heading h2 { margin:0; font-family:var(--font-sans),Arial,sans-serif; font-size:1.15rem; font-weight:700; letter-spacing:0; }
+.cardio-inline-heading p { margin:3px 0 0; font-size:.8rem; color:var(--muted); }
+.cardio-complete-label { border-radius:20px; background:var(--surface-sage); color:var(--forest-700); font-size:.75rem; padding:6px 10px; white-space:nowrap; }
+.cardio-workout-row { display:grid; grid-template-columns:minmax(0,1fr) 110px 100px; gap:12px; align-items:end; padding:10px 20px 0; }
+.cardio-workout-row label { margin:0; font-size:.72rem; font-weight:600; color:var(--muted); }
+.cardio-workout-row input,.cardio-workout-row select { height:48px; color:var(--ink); font-size:1rem!important; font-weight:600; }
+.cardio-workout-row input { text-align:center; font-variant-numeric:tabular-nums; }
+.cardio-workout-row .cardio-done-button { height:48px; min-height:48px; padding:8px 14px; border-radius:9px; font-size:.9rem; box-shadow:none; }
+.cardio-inline-meta { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:4px 20px 8px; min-height:36px; }
+.cardio-inline-meta > span { color:var(--muted); font-size:.72rem; }
+.cardio-inline-meta .cardio-text-button { text-decoration:none; font-size:.72rem; }
+.cardio-bottom { padding:0 20px 12px; }
+.cardio-save { margin-bottom:3px; }
+.cardio-more > summary { font-size:.75rem; }
+.cardio-recorded .cardio-workout-row input:disabled,.cardio-recorded .cardio-workout-row select:disabled { opacity:1; background:var(--surface-sage); }
+@media(max-width:760px) {
+ .cardio-inline-heading { padding:16px 14px 4px; }
+ .cardio-workout-row { grid-template-columns:minmax(0,1fr) 75px 65px; gap:7px; padding:10px 14px 0; }
+ .cardio-workout-row input,.cardio-workout-row select { padding:8px 6px!important; }
+ .cardio-workout-row .cardio-done-button { padding:8px; }
+ .cardio-inline-meta { margin:4px 14px 6px; }
+ .cardio-bottom { padding:0 14px 10px; }
+}

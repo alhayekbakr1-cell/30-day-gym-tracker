@@ -26,6 +26,8 @@ export default function CardioPanel({ workoutKey, tracker, disabled, saveLabel, 
   const liftId = strengthCardioId(tracker, workoutKey);
   const liftSession = cardio?.sessions[liftId] ?? null;
   const [week, setWeek] = useState(cardioWeek(today));
+  const [machine, setMachine] = useState<CardioModality | null>(null);
+  const [minutes, setMinutes] = useState("20");
   const [form, setForm] = useState<EditForm | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState(false);
@@ -59,19 +61,33 @@ export default function CardioPanel({ workoutKey, tracker, disabled, saveLabel, 
     finally { saving.current = false; }
   }
 
+  function finishCardio() {
+    if (disabled || saving.current || liftSession) return;
+    saving.current = true;
+    try {
+      const input = { date: today, modality: machine ?? cardio?.plan.preferred[0] ?? "treadmill", minutes: Number(minutes), effort: null, note: "" };
+      const transform = (state: TrackerState) => logStrengthCardio(state, workoutKey, input);
+      transform(tracker); onChange(transform); setError(false); setMessage("Cardio recorded. Check the save status below.");
+    } catch (cause) { setError(true); setMessage(cause instanceof Error ? cause.message : "Could not record cardio."); }
+    finally { saving.current = false; }
+  }
+  function editDetails() {
+    start(null, liftSession, true);
+    if (!liftSession) setForm({ row: null, recordId: liftId, sessionId: null, date: today, modality: machine ?? cardio?.plan.preferred[0] ?? "treadmill", minutes, effort: null, note: "" });
+  }
+  const displayedMachine = liftSession?.modality ?? machine ?? cardio?.plan.preferred[0] ?? "treadmill";
+
   return <section className={`card cardio-panel${liftSession ? " cardio-recorded" : ""}`} id="cardio-panel" aria-labelledby="cardio-title">
-    <div className="cardio-main">
-      <div className="cardio-duration" aria-label="20 minute target"><strong>20</strong><span>MIN</span></div>
-      <div className="cardio-heading">
-        <span className="cardio-kicker">WITH EVERY WORKOUT</span>
-        <h2 id="cardio-title">Cardio finish</h2>
-        <p>{liftSession ? <><span className="cardio-check" aria-hidden="true">✓</span> {CARDIO_MODALITIES[liftSession.modality]} · {liftSession.minutes} min logged</> : "Treadmill walk · after your strength session"}</p>
-      </div>
-      <button className={liftSession ? "secondary-button cardio-main-action" : "primary-button cardio-main-action"} type="button" disabled={disabled} aria-expanded={!!form} aria-controls="cardio-log-form" onClick={() => start(null, liftSession, true)}>{liftSession ? "Edit log" : "Log cardio"}<span aria-hidden="true">↗</span></button>
+    <div className="cardio-inline-heading"><div><h2 id="cardio-title">Cardio</h2><p>20 minutes after lifting</p></div>{liftSession && <span className="cardio-complete-label">✓ Logged</span>}</div>
+    <div className="cardio-workout-row">
+      <label>Machine<select aria-label="Cardio machine for this workout" value={displayedMachine} disabled={disabled || !!liftSession} onChange={event => { setMachine(event.target.value as CardioModality); setMessage(""); }}>{Object.entries(CARDIO_MODALITIES).filter(([id]) => available.includes(id as CardioModality) || id === displayedMachine).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
+      <label>Minutes done<input aria-label="Cardio minutes completed" type="number" inputMode="decimal" min={0.1} max={600} step="any" value={liftSession ? String(liftSession.minutes) : minutes} disabled={disabled || !!liftSession} onChange={event => { setMinutes(event.target.value); setMessage(""); }}/></label>
+      <button className={liftSession ? "secondary-button cardio-done-button" : "primary-button cardio-done-button"} type="button" disabled={disabled} onClick={liftSession ? editDetails : finishCardio}>{liftSession ? "Edit" : "Done"}</button>
     </div>
+    <div className="cardio-inline-meta"><span>{liftSession ? liftSession.date : "Today"}</span>{!liftSession && <button className="cardio-text-button" type="button" disabled={disabled} aria-expanded={!!form} onClick={editDetails}>Date, effort or note</button>}</div>
 
     {form && <div className="cardio-log-form" id="cardio-log-form" ref={formRef} tabIndex={-1} role="region" aria-labelledby="cardio-form-title">
-      <div className="cardio-form-heading"><h3 id="cardio-form-title">{form.sessionId ? "Edit your cardio" : "How did it go?"}</h3><button className="cardio-text-button" type="button" onClick={() => { setForm(null); setMessage(""); }}>Cancel</button></div>
+      <div className="cardio-form-heading"><h3 id="cardio-form-title">{form.sessionId ? "Edit cardio" : "Cardio details"}</h3><button className="cardio-text-button" type="button" onClick={() => { setForm(null); setMessage(""); }}>Cancel</button></div>
       <fieldset className="cardio-machine-picker"><legend>Machine</legend><div>{Object.entries(CARDIO_MODALITIES).filter(([id]) => form.sessionId || available.includes(id as CardioModality) || id === form.modality).map(([id, label]) => <button key={id} type="button" aria-pressed={form.modality === id} disabled={disabled} onClick={() => setForm({ ...form, modality: id as CardioModality })}>{label}</button>)}</div></fieldset>
       <div className="cardio-record-row"><label htmlFor="cardio-minutes">Minutes completed<span className="cardio-minutes-input"><input id="cardio-minutes" type="number" inputMode="decimal" min={0.1} max={600} step="any" placeholder="20" value={form.minutes} disabled={disabled} onChange={e => setForm({ ...form, minutes: e.target.value })}/><span>min</span></span></label><button className="cardio-quick-fill" type="button" disabled={disabled} onClick={() => setForm({ ...form, minutes: "20" })}>I did 20 min</button><button className="primary-button" type="button" disabled={disabled} onClick={save}>{form.sessionId ? "Save changes" : "Save cardio"}</button></div>
       <p className="cardio-form-hint">Log what you actually did. Shorter sessions count too.</p>
