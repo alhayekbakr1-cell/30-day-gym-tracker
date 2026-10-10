@@ -1,3 +1,4 @@
+import { cleanCardio } from "../app/cardio-logic";
 import { cleanEquipment, defaultEquipment } from "../app/equipment-logic";
 import type {
   DailyMetric,
@@ -165,7 +166,7 @@ function cleanPrescription(value: unknown, key: number, plan: FourDayPlan): Sess
 
 export function sanitizeTrackerState(value: unknown): TrackerState | null {
   if (!isRecord(value)) return null;
-  if (typeof value.schemaVersion === "number" && value.schemaVersion > 7) return null;
+  if (typeof value.schemaVersion === "number" && value.schemaVersion > 8) return null;
   const programVersion: 1 | 2 | 3 = value.programVersion === 1 ? 1 : value.programVersion === 2 ? 2 : 3;
 
   const startDate = value.startDate === null ? null : cleanIsoDate(value.startDate);
@@ -173,7 +174,7 @@ export function sanitizeTrackerState(value: unknown): TrackerState | null {
     return null;
   }
   const fourDayPlan = value.fourDayPlan == null ? null : cleanFourDayPlan(value.fourDayPlan);
-  if (value.fourDayPlan != null && (!fourDayPlan || (value.schemaVersion !== 6 && value.schemaVersion !== 7) || !startDate || fourDayPlan.startsOn < startDate)) return null;
+  if (value.fourDayPlan != null && (!fourDayPlan || (value.schemaVersion !== 6 && value.schemaVersion !== 7 && value.schemaVersion !== 8) || !startDate || fourDayPlan.startsOn < startDate)) return null;
 
   const source = isRecord(value.workouts) ? value.workouts : {};
   const workouts: Record<string, WorkoutLog> = {};
@@ -207,9 +208,13 @@ export function sanitizeTrackerState(value: unknown): TrackerState | null {
     if (cleanIsoDate(date)) dailyMetrics[date] = cleanMetric(metric, profile.weightUnit);
   }
 
-  const equipment = value.equipment === undefined && value.schemaVersion !== 7 ? defaultEquipment() : cleanEquipment(value.equipment, allowedExercises);
+  const equipment = value.equipment === undefined && (value.schemaVersion !== 7 && value.schemaVersion !== 8) ? defaultEquipment() : cleanEquipment(value.equipment, allowedExercises);
   if (!equipment) return null;
+  if (value.schemaVersion === 8 && !Object.hasOwn(value,"cardio")) return null;
+  const cardio = value.cardio == null ? null : value.schemaVersion === 8 ? cleanCardio(value.cardio) : null;
+  if (value.cardio != null && !cardio) return null;
   const state: TrackerState = {
+    cardio,
     equipment,
     fourDayPlan,
     blockId: typeof value.blockId === "string" ? cleanText(value.blockId, 80) : startDate,
@@ -218,7 +223,7 @@ export function sanitizeTrackerState(value: unknown): TrackerState | null {
     profile,
     schedule,
     scheduleModifiedAt: cleanTimestamp(value.scheduleModifiedAt),
-    schemaVersion: 7,
+    schemaVersion: 8,
     startDate,
     workouts,
   };

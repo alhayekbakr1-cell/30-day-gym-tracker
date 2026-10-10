@@ -52,7 +52,8 @@ export type TrackerState = {
   profile: ProfileSettings;
   schedule: Record<string, string>;
   scheduleModifiedAt: string;
-  schemaVersion: 7;
+  schemaVersion: 8;
+  cardio: import("./cardio-logic").CardioState | null;
   equipment: import("./equipment-logic").EquipmentProfile;
   startDate: string | null;
   workouts: Record<string, WorkoutLog>;

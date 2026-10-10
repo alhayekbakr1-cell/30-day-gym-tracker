@@ -21,5 +21,5 @@ if (diagnostics.length) {
 }
 mkdirSync(".test-build", { recursive: true });
 writeFileSync(".test-build/package.json", '{"type":"commonjs"}\n');
-const result = spawnSync(process.execPath, ["--test", "tests/tracker.test.mjs", "tests/sync.test.mjs", "tests/four-day.test.mjs", "tests/history.test.mjs", "tests/offline.test.mjs", "tests/tabs.test.mjs", "tests/coach.test.mjs", "tests/equipment.test.mjs"], { stdio: "inherit" });
+const result = spawnSync(process.execPath, ["--test", "tests/tracker.test.mjs", "tests/sync.test.mjs", "tests/four-day.test.mjs", "tests/history.test.mjs", "tests/offline.test.mjs", "tests/tabs.test.mjs", "tests/coach.test.mjs", "tests/equipment.test.mjs", "tests/cardio.test.mjs"], { stdio: "inherit" });
 process.exit(result.status ?? 1);

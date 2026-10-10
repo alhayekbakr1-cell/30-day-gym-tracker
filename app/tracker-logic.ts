@@ -1,3 +1,4 @@
+import { mergeCardio } from "./cardio-logic";
 import { defaultEquipment } from "./equipment-logic";
 import type { DailyMetric, ProfileSettings, SetLog, TrackerState, WorkoutLog } from "./tracker-types";
 import { canonicalExerciseId, EXERCISE_LIBRARY, isTrainingDayNumber, scheduledTrainingDays, WORKOUTS, workoutIdForDay, workingSetsForDay } from "./workout-data";
@@ -8,9 +9,9 @@ export const EMPTY_PROFILE: ProfileSettings = {
   loadUnit: "lb", modifiedAt: ZERO_DATE, proteinGoal: "", stepGoal: "7000", weightUnit: "lb",
 };
 export const EMPTY_STATE: TrackerState = {
-  fourDayPlan: null, equipment: defaultEquipment(),
+  fourDayPlan: null, cardio: null, equipment: defaultEquipment(),
   blockId: null, dailyMetrics: {}, programVersion: 3, profile: EMPTY_PROFILE, schedule: {},
-  scheduleModifiedAt: ZERO_DATE, schemaVersion: 7, startDate: null, workouts: {},
+  scheduleModifiedAt: ZERO_DATE, schemaVersion: 8, startDate: null, workouts: {},
 };
 
 export function localIsoDate(date = new Date()) {
@@ -53,8 +54,8 @@ export function normalizeTrackerState(value: Partial<TrackerState> | null | unde
     date, { ...metric, weightUnit: metric.weightUnit ?? profile.weightUnit },
   ]));
   return {
-    blockId: value.blockId ?? startDate, dailyMetrics, programVersion: 3, profile, workouts, startDate, schemaVersion: 7,
-    fourDayPlan: value.fourDayPlan ?? null, equipment: value.equipment ?? defaultEquipment(),
+    blockId: value.blockId ?? startDate, dailyMetrics, programVersion: 3, profile, workouts, startDate, schemaVersion: 8,
+    fourDayPlan: value.fourDayPlan ?? null, cardio: value.cardio ?? null, equipment: value.equipment ?? defaultEquipment(),
     schedule: value.schedule && Object.keys(value.schedule).length > 0 ? value.schedule : defaultSchedule(),
     scheduleModifiedAt: value.scheduleModifiedAt ?? ZERO_DATE,
   };
@@ -153,7 +154,7 @@ export function suggestedFourDayStart(state: TrackerState, today = localIsoDate(
 export function activateFourDayPlan(state: TrackerState, startsOn: string, id: string, now = new Date().toISOString(), today = localIsoDate()): TrackerState {
   if (state.fourDayPlan) throw new Error("Your four-day plan is already active.");
   if (!state.startDate || !isIsoDate(startsOn) || startsOn < earliestFourDayStart(state, today)) throw new Error("Choose a date at least two days after your latest saved workout, and no earlier than today.");
-  return { ...state, schemaVersion: 7, fourDayPlan: { id, version: 1, startsOn, modifiedAt: now, sets: initialFourDaySets(), rir: 3, shifts: {} } };
+  return { ...state, schemaVersion: 8, fourDayPlan: { id, version: 1, startsOn, modifiedAt: now, sets: initialFourDaySets(), rir: 3, shifts: {} } };
 }
 export function changeFourDaySets(state: TrackerState, template: FourDayWorkoutId, slot: string, count: number, now = new Date().toISOString()): TrackerState {
   const plan = state.fourDayPlan;
@@ -308,8 +309,8 @@ function mergeFields<T>(remote: T, local: T, base: T | undefined, preferLocal: b
 /** Merge independent edits against the last acknowledged state; timestamps settle same-field conflicts. */
 export function mergeTrackerStates(remoteValue: TrackerState | null, localValue: TrackerState, baseValue?: TrackerState | null): TrackerState {
   const remote = normalizeTrackerState(remoteValue), local = normalizeTrackerState(localValue);
-  if (!remote.startDate) return local;
-  if (!local.startDate) return remote;
+  if (!remote.startDate && local.startDate) return local;
+  if (!local.startDate && remote.startDate) return remote;
   if (remote.blockId !== local.blockId || remote.startDate !== local.startDate) return remote;
   const base = baseValue?.blockId === local.blockId && baseValue.startDate === local.startDate ? normalizeTrackerState(baseValue) : null;
   const workouts: Record<string, WorkoutLog> = {};
@@ -342,10 +343,11 @@ export function mergeTrackerStates(remoteValue: TrackerState | null, localValue:
     fourDayPlan: same(local.fourDayPlan, base?.fourDayPlan) ? remote.fourDayPlan
       : same(remote.fourDayPlan, base?.fourDayPlan) ? local.fourDayPlan
         : Date.parse(local.fourDayPlan?.modifiedAt ?? ZERO_DATE) > Date.parse(remote.fourDayPlan?.modifiedAt ?? ZERO_DATE) ? local.fourDayPlan : remote.fourDayPlan,
+    cardio: mergeCardio(remote.cardio,local.cardio,base?.cardio ?? null),
     equipment: base ? mergeFields(remote.equipment, local.equipment, base.equipment, Date.parse(local.equipment.modifiedAt) > Date.parse(remote.equipment.modifiedAt)) : Date.parse(local.equipment.modifiedAt) > Date.parse(remote.equipment.modifiedAt) ? local.equipment : remote.equipment,
     profile: base ? mergeFields(remote.profile, local.profile, base.profile, localProfileIsNewer) : localProfileIsNewer ? local.profile : remote.profile,
     schedule: base ? mergeFields(remote.schedule, local.schedule, base.schedule, localScheduleIsNewer) : localScheduleIsNewer ? local.schedule : remote.schedule,
     scheduleModifiedAt: localScheduleIsNewer ? local.scheduleModifiedAt : remote.scheduleModifiedAt,
-    schemaVersion: 7, startDate: remote.startDate, workouts,
+    schemaVersion: 8, startDate: remote.startDate, workouts,
   };
 }

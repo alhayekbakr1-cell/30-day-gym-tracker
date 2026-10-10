@@ -15,6 +15,7 @@ import ProgramIntelligence from "./ProgramIntelligence";
 import FourDaySetup from "./FourDaySetup";
 import { FOUR_DAY_KEY_START, initialFourDaySets, isFourDayKey } from "./four-day-data";
 import ProgressDashboard from "./ProgressDashboard";
+import CardioPanel from "./CardioPanel";
 import EquipmentSettings from "./EquipmentSettings";
 import { EQUIPMENT, equipmentAlternatives, availableExercise, requirements, MOVEMENT_EMPHASIS, loadOptions, loadConvention, equipmentProgression, latestIncomplete } from "./equipment-logic";
 import ExerciseHistory from "./ExerciseHistory";
@@ -1184,6 +1185,7 @@ export default function GymTracker({
           </aside>
         </section>
 
+        <CardioPanel key={sync.accountChanged ? "signed-out-cardio" : user?.email ?? "guest-cardio"} tracker={tracker} disabled={!progressLoaded || !user || !sync.editable || sync.conflict} saveLabel={sync.storageError ? `${syncLabel} · ${sync.storageError}` : syncLabel} onChange={mutateTracker} />
         <details className="training-tools" id="training-tools" open={toolsOpen} onToggle={event=>setToolsOpen(event.currentTarget.open)}><summary>Plan, progress & tools</summary><div className="training-tools-content">
         <section className={`status-grid ${started ? "has-started" : ""}`} aria-labelledby="hero-title">
           <article className="card hero-card">

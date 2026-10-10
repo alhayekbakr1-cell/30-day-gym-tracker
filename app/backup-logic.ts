@@ -17,8 +17,8 @@ export function parseBackup(text: string) {
     if (parsed.version !== 1) throw new Error("This backup format needs a newer version of Gym Tracker.");
     parsed = parsed.state;
   }
-  if (!record(parsed) || (parsed.schemaVersion !== 5 && parsed.schemaVersion !== 6 && parsed.schemaVersion !== 7) || !record(parsed.workouts) || !record(parsed.dailyMetrics)
-    || !record(parsed.profile) || !record(parsed.schedule)) throw new Error("This is not a supported Gym Tracker backup (schema 5, 6 or 7).");
+  if (!record(parsed) || (parsed.schemaVersion !== 5 && parsed.schemaVersion !== 6 && parsed.schemaVersion !== 7 && parsed.schemaVersion !== 8) || !record(parsed.workouts) || !record(parsed.dailyMetrics)
+    || !record(parsed.profile) || !record(parsed.schedule)) throw new Error("This is not a supported Gym Tracker backup (schema 5, 6, 7 or 8).");
   const state = sanitizeTrackerState(parsed);
   if (!state) throw new Error("The backup contains an invalid plan date or unsupported data.");
   // Reject records that would be silently dropped or shortened during server validation.
@@ -75,4 +75,12 @@ export function csvCell(value: unknown) {
   const original = String(value ?? "");
   const text = /^[\s]*[=+@-]|^[\t\r]/.test(original) ? `'${original}` : original;
   return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+/** Cardio export stays in distinct records and never enters strength volume columns. */
+export function cardioCsvRows(state: TrackerState): unknown[][] {
+  return Object.values(state.cardio?.sessions ?? {}).sort((a,b)=>a.date.localeCompare(b.date)||a.id.localeCompare(b.id)).map(row=>[
+    "cardio", row.date, row.id, "", "", "", "", "", "", true, "", "", "", "", "",
+    row.modality, row.minutes, row.effort ?? "", row.note, row.opportunityId ?? "",
+  ]);
 }

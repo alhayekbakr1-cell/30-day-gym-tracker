@@ -58,9 +58,9 @@ test('latest edited incomplete resumes after reload and substituted history reta
 test('actual atomic SQL prevents schema-6 equipment erasure, preserves CAS and account separation',()=>{
  const sql=readFileSync(new URL('../lib/progress-store.ts',import.meta.url),'utf8').match(/"(UPDATE gym_progress SET state_json = .*?json_extract.*?)"/)[1];const db=new DatabaseSync(':memory:');
  try{db.exec('CREATE TABLE gym_progress(user_email TEXT PRIMARY KEY,state_json TEXT,version INTEGER,updated_at INTEGER)');const saved=state();saved.equipment.notes.smith='My safety stops';db.prepare('INSERT INTO gym_progress VALUES(?,?,1,1)').run('owner',JSON.stringify(saved));
- const old={...saved,schemaVersion:6,equipment:undefined};assert.equal(db.prepare(sql).run(JSON.stringify(old),2,2,'owner',1,6,6).changes,0);
- assert.equal(db.prepare(sql).run(JSON.stringify(saved),2,2,'other',1,7,7).changes,0);
- assert.equal(db.prepare(sql).run(JSON.stringify(saved),2,2,'owner',1,7,7).changes,1);
- assert.equal(db.prepare(sql).run(JSON.stringify(saved),3,3,'owner',1,7,7).changes,0);
+ const old={...saved,schemaVersion:6,equipment:undefined};assert.equal(db.prepare(sql).run(JSON.stringify(old),2,2,'owner',1,6,6,6).changes,0);
+ assert.equal(db.prepare(sql).run(JSON.stringify(saved),2,2,'other',1,8,8,8).changes,0);
+ assert.equal(db.prepare(sql).run(JSON.stringify(saved),2,2,'owner',1,8,8,8).changes,1);
+ assert.equal(db.prepare(sql).run(JSON.stringify(saved),3,3,'owner',1,8,8,8).changes,0);
  }finally{db.close();}
 });

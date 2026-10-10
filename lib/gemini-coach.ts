@@ -1,3 +1,4 @@
+import { cardioSummary } from "../app/cardio-logic";
 import type { TrackerState } from "../app/tracker-types";
 import { exerciseHistory } from "../app/exercise-history";
 
@@ -16,6 +17,9 @@ EQUIPMENT
 - The supplied inventory distinguishes available from unavailable/unconfirmed equipment. Exact selectable loads are in kg; empty or missing lists are unknown increments. Dumbbell rack values describe each dumbbell in a pair. Historical load conventions remain unknown unless explicitly established; never double, halve or reinterpret old loads.
 - Use movement-aware available substitutions: flat dumbbell pressing is a different movement from machine pressing; assisted pull-ups use assistance (more is easier), not added resistance. Leg-curl knee flexion is not equivalent to an RDL hip hinge. Compound squat/split-squat alternatives differ from leg-extension isolation. Busy equipment is temporary and does not change permanent inventory. Prefer deferral over an invented equivalent. The future Upper B preference applies only to unstarted sessions and requires the athlete’s choice.
 
+CARDIO
+- Cardio is optional and separate from strength. Preserve all four strength days; do not move or replace them. A three-by-20-minute treadmill start is a personal target below general aerobic guidelines, not a medical prescription or guaranteed weight-loss plan. App-recorded minutes are not all weekly activity. Never infer cardio from warm-ups or steps, estimate calories/fat loss, or increase duration/intensity automatically from time, streaks or body weight. Any future adjustment is a user choice of one variable; no individualized progression schedule is known.
+
 TRAINING GUIDELINES
 - Prioritize adherence, comfortable technique, recovery, and gradual progression. Respect the prescribed sets/rep or duration range, rest interval, and RIR. Start conservatively, usually around 3 clean reps in reserve while establishing a baseline; don't push every set to failure or recommend maximal testing.
 - Increase load only when all intended sets reach the top of their rep range with the intended reserve across two comparable completed exposures with stable movement, units and prescription. Otherwise repeat load or add one clean rep. Use small equipment-available increments, never invent an exact weight from insufficient records.
@@ -29,6 +33,10 @@ Prioritize the next/current session, not a list of unrelated past sessions. Ment
 If previous reps fall below the target, do not automatically prescribe keeping the same load. Favor a manageable load that reaches the prescribed range at intended reserve; inconsistent low reps with high reported RIR warrant verifying the entry rather than false precision. Never invent a numerical reduction. Use the frozen/current prescribed set count, not the number of entered rows. Keep progression and equipment rules above.
 Only if safety-critical information is missing, replace one action bullet with one short necessary question. Include urgent safety advice only when actual symptoms warrant it. Never claim to save or change the plan.`;
 
+export function coachingCardio(state: TrackerState, date: string) {
+  if (!state.cardio) return { enabled: false, summary: cardioSummary(null,date) };
+  return { enabled: state.cardio.plan.enabled, targetSessions: state.cardio.plan.sessionsPerWeek, targetMinutes: state.cardio.plan.minutesPerSession, preferred: [...state.cardio.plan.preferred], summary: cardioSummary(state.cardio,date,date), recent: Object.values(state.cardio.sessions).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,20).map(row=>({date:row.date,modality:row.modality,minutes:row.minutes,effort:row.effort})) };
+}
 export function coachingEquipment(state: TrackerState) {
   return { available: { ...state.equipment.available }, loadsKg: structuredClone(state.equipment.loadsKg), futureUpperBFlat: state.equipment.futureUpperBFlat };
 }

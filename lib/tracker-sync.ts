@@ -1,3 +1,4 @@
+import { cardioConflict } from "../app/cardio-logic";
 import type { SyncedProgress, TrackerState } from "../app/tracker-types";
 import { EMPTY_STATE, earliestFourDayStart, mergeTrackerStates, normalizeTrackerState } from "../app/tracker-logic";
 import { sanitizeTrackerState } from "./tracker-validation";
@@ -54,7 +55,7 @@ export class TrackerSync {
       const raw = this.storage().getItem(this.key);
       if (raw) {
         const cache = JSON.parse(raw) as Cache;
-        const state = cache.format === 1 && [5, 6, 7].includes(cache.state?.schemaVersion) ? sanitizeTrackerState(cache.state) : null;
+        const state = cache.format === 1 && [5, 6, 7, 8].includes(cache.state?.schemaVersion) ? sanitizeTrackerState(cache.state) : null;
         if (!state || !Number.isSafeInteger(cache.version) || cache.version < 0) throw new Error("Invalid recovery data");
         this.base = cache.base ? normalizeTrackerState(sanitizeTrackerState(cache.base)) : null;
         this.replacement = cache.replacement === true;
@@ -107,6 +108,11 @@ export class TrackerSync {
       const retained: Cache = { format: 1, state: local, base: this.base, version: this.snapshot.version, pending: true, replacement: this.replacement, updatedAt: this.snapshot.updatedAt };
       try { this.storage().setItem(`${this.key}:retained:${crypto.randomUUID()}`, JSON.stringify(retained)); }
       catch { this.publish({ storageError: "Could not preserve this competing draft. Merge is paused; export JSON before retrying." }); throw new Error("draft-retention-failed"); }
+    }
+    if (this.snapshot.pending && cardioConflict(remote.cardio,local.cardio,sent ? sent.cardio : this.base?.cardio ?? null)) {
+      this.remoteConflict = progress;
+      this.publish({ conflict: true, message: "The same cardio visit or plan was edited differently on another device. Your draft is preserved. Export it before loading the server copy." });
+      throw new Error("cardio-conflict");
     }
     const differentPlan = remote.blockId !== local.blockId || remote.startDate !== local.startDate;
     const serverChangedPlan = this.base

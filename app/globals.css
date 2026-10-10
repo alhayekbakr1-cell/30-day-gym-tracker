@@ -3669,3 +3669,16 @@ details summary:focus-visible,.history-link:focus-visible { outline:3px solid #2
  .workout-first .session-tools button:last-child { display:inline-block; }
  .workout-first .content { padding-bottom:24px; }
 }
+.cardio-panel > summary { cursor:pointer; font-weight:650; }
+.cardio-panel p { line-height:1.6; }
+.cardio-week,.cardio-plan-line,.cardio-actions { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:12px 0; }
+.cardio-opportunities { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr)); gap:12px; }
+.cardio-opportunity,.cardio-log-form,.cardio-history,.cardio-dashboard { padding:14px; border:1px solid var(--border); border-radius:12px; overflow-wrap:anywhere; }
+.cardio-panel label { display:grid; gap:6px; margin:12px 0; min-width:0; }
+.cardio-panel input:not([type=checkbox]),.cardio-panel select,.cardio-panel textarea { width:100%; max-width:100%; min-width:0; padding:10px; font:inherit; border:1px solid var(--border); border-radius:8px; background:white; }
+.cardio-panel button { min-height:44px; padding:8px 12px; max-width:100%; }
+.cardio-panel summary { cursor:pointer; padding:10px 0; }
+.cardio-panel fieldset { min-width:0; }
+.cardio-panel button:focus-visible,.cardio-panel input:focus-visible,.cardio-panel select:focus-visible,.cardio-panel textarea:focus-visible,.cardio-panel summary:focus-visible { outline:3px solid #245e4d; outline-offset:3px; }
+.cardio-log-form { margin:16px 0; scroll-margin-top:140px; }
+@media(prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }

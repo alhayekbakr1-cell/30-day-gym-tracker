@@ -2,7 +2,7 @@ import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { isIsoDate } from "@/app/tracker-logic";
 import { readProgress } from "@/lib/progress-store";
 import { buildCoachSummary } from "@/lib/coach-summary";
-import { COACH_INSTRUCTIONS, coachingEquipment, GEMINI_MODEL, coachingHistory, geminiText } from "@/lib/gemini-coach";
+import { COACH_INSTRUCTIONS, coachingCardio, coachingEquipment, GEMINI_MODEL, coachingHistory, geminiText } from "@/lib/gemini-coach";
 export const dynamic = "force-dynamic";
 const recent = new Map<string, number>();
 const reply = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "private, no-store" } });
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     if (now - (recent.get(user.email) ?? 0) < 30000) return reply({ error: "Please wait 30 seconds between reviews." }, 429);
     for (const [id, timestamp] of recent) if (now - timestamp > 60000) recent.delete(id);
     recent.set(user.email, now);
-    const context = { equipment: coachingEquipment(progress.state), question: body.question, summary: buildCoachSummary(progress.state, body.date), history: coachingHistory(progress.state), goals: progress.state.profile };
+    const context = { cardio: coachingCardio(progress.state,body.date), equipment: coachingEquipment(progress.state), question: body.question, summary: buildCoachSummary(progress.state, body.date), history: coachingHistory(progress.state), goals: progress.state.profile };
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
       method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": secret },
       body: JSON.stringify({ systemInstruction: { parts: [{ text: COACH_INSTRUCTIONS }] }, contents: [{ role: "user", parts: [{ text: JSON.stringify(context) }] }], generationConfig: { temperature: 0.3, maxOutputTokens: 3500 } }),
