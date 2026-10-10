@@ -3841,3 +3841,5 @@ details summary:focus-visible,.history-link:focus-visible { outline:3px solid #2
 .workout-first .previous-performance { grid-area:performance; }
 .exercise-sequence-hint { margin:-8px 0 14px; font-size:.74rem; color:var(--muted); }
 .cardio-log-form:focus-visible { outline:3px solid var(--forest-700); outline-offset:3px; }
+
+@media(max-width:760px) { .workout-first .workout-home-heading { flex-wrap:wrap; } .workout-first .workout-home-heading > div:last-child { max-width:100%; } }

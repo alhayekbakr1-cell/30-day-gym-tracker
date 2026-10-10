@@ -666,8 +666,8 @@ export default function GymTracker({
           {(syncStatus === "error" || sync.storageError) && <button type="button" onClick={() => void controller.sync()}>Retry save</button>}
           {sync.conflict && sync.editable && <button type="button" onClick={() => { downloadBackup(controller.getSnapshot().state, "gym-tracker-device-draft"); controller.acceptServerPlan(); }}>Export draft & load server plan</button>}
         </div>
-        <div className="workout-home-heading"><div><p className="eyebrow">YOUR TRAINING</p><h1>Workout</h1></div><div>{!started && <button className="primary-button" disabled={!progressLoaded || restarting || !sync.editable || sync.conflict} type="button" onClick={startChallenge}>Start plan</button>}{started && activeLog.completed && <button className="secondary-button" disabled={!sync.editable || sync.conflict} type="button" onClick={()=>openSmartWorkout(false)}>Next strength session</button>}<button className={`secondary-button ${toolsOpen ? "is-active" : ""}`} type="button" aria-expanded={toolsOpen} aria-controls="training-tools" onClick={()=>{setToolsOpen(value=>!value);setTimeout(()=>document.getElementById('training-tools')?.scrollIntoView({behavior:'smooth'}),0);}}>Plan & history</button></div></div>
-        <section className="workout-layout" id="workout-detail" aria-labelledby="workout-title">
+        <div className="workout-home-heading"><div><p className="eyebrow">YOUR TRAINING</p><h1 id="app-view-title">{toolsOpen ? "Plan & history" : "Workout"}</h1></div><div>{!started && <button className="primary-button" disabled={!progressLoaded || restarting || !sync.editable || sync.conflict} type="button" onClick={startChallenge}>Start plan</button>}{started && activeLog.completed && <button className="secondary-button" disabled={!sync.editable || sync.conflict} type="button" onClick={()=>openSmartWorkout(false)}>Next strength session</button>}<button className={`secondary-button ${toolsOpen ? "is-active" : ""}`} type="button" aria-expanded={toolsOpen} aria-controls="training-tools" onClick={()=>{setToolsOpen(value=>!value);setTimeout(()=>document.getElementById(toolsOpen ? 'workout-detail' : 'training-tools')?.scrollIntoView({behavior:'smooth'}),0);}}>{toolsOpen ? "Back to workout" : "Plan & history"}</button></div></div>
+        <section className="workout-layout" id="workout-detail" aria-labelledby="workout-title" hidden={toolsOpen}>
           <article className="card workout-card" data-workout-phase={phase}>
             <div className="workout-header">
               <div>
@@ -1215,7 +1215,7 @@ export default function GymTracker({
         </section>
 
 
-        <details className="training-tools" id="training-tools" open={toolsOpen} onToggle={event=>setToolsOpen(event.currentTarget.open)}><summary>Plan, progress & tools</summary><div className="training-tools-content">
+        <section className="training-tools" id="training-tools" hidden={!toolsOpen} aria-labelledby="app-view-title"><div className="training-tools-content">
         <section className={`status-grid ${started ? "has-started" : ""}`} aria-labelledby="hero-title">
           <article className="card hero-card">
             <div>
@@ -1383,7 +1383,7 @@ export default function GymTracker({
           tracker={tracker}
           user={user}
         />
-        </div></details>
+        </div></section>
       </div>
 
       <div className="sr-only" aria-live="polite">
