@@ -1,12 +1,12 @@
 # Publish Gym Tracker through GitHub
 
-This package contains the four-day tracker and a GitHub Actions verification workflow. It has not been pushed to GitHub or deployed. The workflow checks the existing Sites build; it does not provision hosting or publish the app.
+The four-day tracker changes are published to the repository on a pull request branch. The existing production host is the ChatGPT Sites URL below. GitHub Actions currently verifies the source; there is no GitHub deployment workflow, and these changes have not been published to the live host.
 
 ## What GitHub can host
 
-GitHub can store the source and run automated verification and deployment workflows. GitHub Pages serves static files. This app currently runs a Cloudflare Worker, uses Cloudflare D1 for workout records, and receives authenticated identity from the ChatGPT Sites proxy. Uploading this source to Pages will not provide that server, database, or sign-in service.
+GitHub can store the source and run automated verification and deployment workflows. GitHub Pages serves static files. The existing ChatGPT Sites host runs the Cloudflare Worker, supplies the D1 binding, and provides authenticated identity through its trusted proxy. Uploading this source to Pages will not provide that server, database, or sign-in service.
 
-The closest alternative hosting architecture is a GitHub repository connected to Cloudflare Workers and D1. That migration also requires replacing the Sites sign-in integration with a trusted authentication provider. It is not implemented by this package. Keeping the current Sites host remains an option if publishing access is restored.
+The closest alternative hosting architecture is a GitHub repository connected to Cloudflare Workers and D1. That migration also requires replacing the Sites sign-in integration with a trusted authentication provider and provisioning a real production database. It is not implemented by this package. The repository does not have access to the existing Sites publishing controls.
 
 ## Put the source in a repository
 
@@ -29,7 +29,7 @@ The supplied `.gitignore` excludes dependency installations, generated output, l
 
 `.github/workflows/ci.yml` runs on pushes to `main`, pull requests, and manual dispatch. It uses Node.js 24 and the supplied lockfile, then runs TypeScript, ESLint, the regression suite, the production build, artifact validation, and Worker HTML checks. It has read-only repository permissions and needs no hosting credentials.
 
-The existing application passed 42 regression tests, TypeScript, lint, and a server-render smoke check in the preparation environment. Some locally cached dependencies differed from the lockfile. The exact locked production build and this GitHub-hosted workflow have not yet been run. A passing workflow is required before a production release, followed by live sign-in and persistence checks.
+The workflow runs TypeScript, lint, regression tests, the production build, artifact validation, and a Worker HTML smoke check. Require its latest run to pass before publishing a production release. Then verify authenticated sign-in and workout persistence on the live host; public unauthenticated probes cannot establish that D1 reads and writes work.
 
 ## Requirements before deploying to another host
 
@@ -37,7 +37,7 @@ The existing application passed 42 regression tests, TypeScript, lint, and a ser
 2. Select a host and account for the server. For Cloudflare, provision a Worker and D1 database, apply the checked-in SQL migrations, and replace the development-only placeholder binding with the real database binding. `.openai/hosting.json` identifies the original Sites project; it does not grant access to its hosted resources.
 3. Replace `app/chatgpt-auth.ts` and its Sites-specific sign-in/sign-out links with server-verified identity for the chosen host. Never accept arbitrary client-supplied `oai-authenticated-user-email` headers as identity on an independently deployed Worker.
 4. Add a deployment workflow for the selected host only after that integration is complete. Cloudflare supports GitHub Actions using repository or environment secrets named `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. Store credentials in GitHub settings, never in source files or chat.
-5. Run the checks, deploy the client and server together, verify sign-in and cross-device saving, then import the exported JSON through the app's validation and restoration flow. Existing schema-5 backups remain supported.
+5. Run the checks, deploy the client and server together, verify sign-in and cross-device saving, then import the exported JSON through the app's validation and restoration flow. Existing schema-5 backups remain supported. Never send a schema-6 plan to a server that still runs the older validator.
 
 After schema-6 four-day records have been saved, do not roll back to a server that only accepts the older schema. See `docs/four-day-upgrade.md` for the transition and rollback details.
 
