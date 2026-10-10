@@ -16,6 +16,7 @@ import FourDaySetup from "./FourDaySetup";
 import { FOUR_DAY_KEY_START, initialFourDaySets, isFourDayKey } from "./four-day-data";
 import ProgressDashboard from "./ProgressDashboard";
 import CardioPanel from "./CardioPanel";
+import { strengthCardioId } from "./cardio-logic";
 import EquipmentSettings from "./EquipmentSettings";
 import { EQUIPMENT, equipmentAlternatives, availableExercise, requirements, MOVEMENT_EMPHASIS, loadOptions, loadConvention, equipmentProgression, latestIncomplete } from "./equipment-logic";
 import ExerciseHistory from "./ExerciseHistory";
@@ -244,6 +245,8 @@ export default function GymTracker({
   const [blockMessage, setBlockMessage] = useState("");
   const [restarting, setRestarting] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [phase, setPhase] = useState<"warmup" | "lift" | "cardio">("warmup");
+  const [focusedExercise, setFocusedExercise] = useState<{day:number;slot:string}|null>(null);
   const [sessionMessage, setSessionMessage] = useState("");
   const selectedBlock = useRef<string | null>(null);
   const timerKey = `gym-tracker:timer:${encodeURIComponent(user?.email ?? "guest")}:${tracker.blockId ?? "preview"}:${selectedDay}`;
@@ -261,6 +264,9 @@ export default function GymTracker({
     const timeout = window.setTimeout(() => {
       selectedBlock.current = selectionId;
       setSelectedDay(day);
+      const log=hydratedWorkoutLog(tracker,day);
+      setPhase(log.completed ? "cardio" : Object.values(log.sets).flat().some(set=>set.done||set.load||set.reps) ? "lift" : "warmup");
+      setFocusedExercise(null);
       if (date) setCalendarMonth(monthStart(date));
     }, 0);
     return () => window.clearTimeout(timeout);
@@ -316,6 +322,12 @@ export default function GymTracker({
 
   const session = sessionProgress(workoutState, selectedDay, activeLog);
   const readyToComplete = session.ready;
+  const sessionExercises = visiblePairs.flatMap(pair => pair.exercises);
+  const focusedSlot = focusedExercise?.day === selectedDay && sessionExercises.some(item => item.id === focusedExercise.slot) ? focusedExercise.slot : session.next?.slot ?? sessionExercises[0]?.id;
+  const focusedIndex = sessionExercises.findIndex(item => item.id === focusedSlot);
+  const cardioDone = Boolean(tracker.cardio?.sessions[strengthCardioId(tracker, selectedDay)]);
+  function focusExercise(index:number) { const exercise=sessionExercises[index];if(exercise)setFocusedExercise({day:selectedDay,slot:exercise.id}); }
+
   const editable = started && !activeLog.completed && !(sync.conflict || !sync.editable);
 
   const updateWorkout = useCallback(
@@ -344,6 +356,9 @@ export default function GymTracker({
     setScheduleMessage("");
     setSessionMessage("");
     setSelectedDay(day);
+    const log=hydratedWorkoutLog(controller.getSnapshot().state,day);
+    setPhase(log.completed ? "cardio" : Object.values(log.sets).flat().some(set=>set.done||set.load||set.reps) ? "lift" : "warmup");
+    setFocusedExercise(null);
     const date = scheduledDate(controller.getSnapshot().state, day);
     if (date) setCalendarMonth(monthStart(date));
     if (scroll) {
@@ -405,6 +420,7 @@ export default function GymTracker({
     patch: Partial<SetLog>,
     suggestedRest = 90,
   ) => {
+    setFocusedExercise({day:selectedDay,slot:exerciseId});
     updateWorkout(selectedDay, (log) => {
       const currentSets = [...(log.sets[exerciseId] ?? [])];
       while (currentSets.length < 3) currentSets.push(blankSet());
@@ -566,9 +582,10 @@ export default function GymTracker({
 
   const jumpToNextSet = () => {
     if (!session.next) return;
-    const row = document.getElementById(`set-${session.next.slot}-${session.next.setIndex}`);
-    row?.scrollIntoView({ behavior: "smooth", block: "center" });
-    window.setTimeout(() => row?.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true }), 250);
+    setPhase("lift");
+    setFocusedExercise({day:selectedDay,slot:session.next.slot});
+    const slot=session.next.slot,index=session.next.setIndex;
+    window.setTimeout(() => {const row=document.getElementById(`set-${slot}-${index}`);row?.scrollIntoView({behavior:"smooth",block:"center"});row?.querySelector<HTMLInputElement>("input")?.focus({preventScroll:true});},50);
   };
 
   const completeWorkout = () => {
@@ -580,6 +597,7 @@ export default function GymTracker({
     }));
     restTimer.pause();
     warmupTimer.pause();
+    setPhase("cardio");
   };
 
   const reopenWorkout = () => {
@@ -648,17 +666,9 @@ export default function GymTracker({
           {(syncStatus === "error" || sync.storageError) && <button type="button" onClick={() => void controller.sync()}>Retry save</button>}
           {sync.conflict && sync.editable && <button type="button" onClick={() => { downloadBackup(controller.getSnapshot().state, "gym-tracker-device-draft"); controller.acceptServerPlan(); }}>Export draft & load server plan</button>}
         </div>
-        <div className="workout-home-heading"><h1>Time to train</h1><div><button className="primary-button" disabled={!progressLoaded || restarting || !sync.editable || sync.conflict} type="button" onClick={()=>started ? openSmartWorkout(false) : startChallenge()}>{started ? "Continue workout" : "Start plan"}</button><button className="secondary-button" type="button" onClick={()=>{setToolsOpen(value=>!value);setTimeout(()=>document.getElementById('training-tools')?.scrollIntoView({behavior:'smooth'}),0);}}>Plan & tools</button></div></div>
+        <div className="workout-home-heading"><div><p className="eyebrow">YOUR TRAINING</p><h1>Workout</h1></div><div>{!started && <button className="primary-button" disabled={!progressLoaded || restarting || !sync.editable || sync.conflict} type="button" onClick={startChallenge}>Start plan</button>}{started && activeLog.completed && <button className="secondary-button" disabled={!sync.editable || sync.conflict} type="button" onClick={()=>openSmartWorkout(false)}>Next strength session</button>}<button className={`secondary-button ${toolsOpen ? "is-active" : ""}`} type="button" aria-expanded={toolsOpen} aria-controls="training-tools" onClick={()=>{setToolsOpen(value=>!value);setTimeout(()=>document.getElementById('training-tools')?.scrollIntoView({behavior:'smooth'}),0);}}>Plan & history</button></div></div>
         <section className="workout-layout" id="workout-detail" aria-labelledby="workout-title">
-          <article className="card workout-card">
-            <div className="session-toolbar">
-              <div><p className="eyebrow">Session {sessionNumber} · {activeLog.lowSleep ? "Short" : "Full"} workout</p><strong>{activeLog.completed ? "Session complete" : `${session.done} / ${session.total} sets logged`}</strong>{session.next && !activeLog.completed && <span className="session-next">Next: {session.next.name} · set {session.next.setIndex + 1}</span>}</div>
-              <div className="session-tools">
-                {started && !activeLog.completed && session.next && <button type="button" onClick={jumpToNextSet}>Next set ↓</button>}
-              </div>
-              <progress aria-label="Working sets completed" max={session.total} value={session.done} />
-              {(restRunning || restFinished) && <div className="session-rest"><span>{restFinished ? "Rest complete" : `Rest ${formatTimer(restSeconds)}`}</span>{restRunning && <><button type="button" onClick={() => restTimer.addTime(30)}>+30 sec</button><button type="button" onClick={() => restTimer.pause()}>Pause rest</button></>}</div>}
-            </div>
+          <article className="card workout-card" data-workout-phase={phase}>
             <div className="workout-header">
               <div>
                 <p className="eyebrow">Session {sessionNumber}</p>
@@ -688,10 +698,23 @@ export default function GymTracker({
               </div>
             </div>
 
+            <nav className="workout-steps" aria-label="Workout stages">
+              {([{id:"warmup",label:"Warm up",done:session.warmupDone===WARMUP_ITEMS.length},{id:"lift",label:"Lift",done:activeLog.completed},{id:"cardio",label:"Cardio · 20 min",done:cardioDone}] as const).map((step,index)=><button key={step.id} type="button" aria-current={phase===step.id?"step":undefined} onClick={()=>setPhase(step.id)}><span>{step.done?"✓":index+1}</span><strong>{step.label}</strong>{step.done&&<small className="sr-only">Completed</small>}</button>)}
+            </nav>
+            <span className="sr-only" role="status">Current stage: {phase === "warmup" ? "Warm up" : phase === "lift" ? "Lift" : "Cardio"}</span>
+            <div className="session-toolbar" hidden={phase!=="lift"}>
+              <div><p className="eyebrow">Session {sessionNumber} · {activeLog.lowSleep ? "Short" : "Full"} workout</p><strong>{activeLog.completed ? "Session complete" : `${session.done} / ${session.total} sets logged`}</strong>{session.next && !activeLog.completed && <span className="session-next">Next: {session.next.name} · set {session.next.setIndex + 1}</span>}</div>
+              <div className="session-tools">
+                {started && !activeLog.completed && session.next && <button type="button" onClick={jumpToNextSet}>Next set ↓</button>}
+              </div>
+              <progress aria-label="Working sets completed" max={session.total} value={session.done} />
+              {(restRunning || restFinished) && <div className="session-rest"><span>{restFinished ? "Rest complete" : `Rest ${formatTimer(restSeconds)}`}</span>{restRunning && <><button type="button" onClick={() => restTimer.addTime(30)}>+30 sec</button><button type="button" onClick={() => restTimer.pause()}>Pause rest</button></>}</div>}
+            </div>
+
             {activeLog.completed && <div className="session-notice"><span>This session is saved. Reopen it to make changes.</span><button className="secondary-button" disabled={!started || (sync.conflict || !sync.editable)} type="button" onClick={reopenWorkout}>Edit completed session</button></div>}
             {sessionMessage && <p className="session-notice" role="status">{sessionMessage}</p>}
 
-            <details className="session-options"><summary>Session options · date, readiness & short mode</summary>
+            <details className="session-options"><summary>Session settings</summary>
             {started && tracker.startDate && activeScheduledDate && (
               <div className="schedule-editor">
                 <div>
@@ -817,7 +840,7 @@ export default function GymTracker({
             </div>
 
             </details>
-            <details className="workout-warmup"><summary>Warm-up · {session.warmupDone} / {WARMUP_ITEMS.length} checked</summary>
+            <div className="workout-warmup" hidden={phase!=="warmup"}>
             <section className="warmup-panel" aria-labelledby="warmup-title">
               <div className="warmup-topline">
                 <div>
@@ -877,9 +900,9 @@ export default function GymTracker({
               </div>
             </section>
 
-            </details>
+            <div className="stage-next"><button className="primary-button" type="button" onClick={()=>setPhase("lift")}>Continue to lifting →</button></div></div>
 
-            <section className={`rest-timer-panel ${restFinished ? "is-finished" : ""}`} aria-labelledby="rest-timer-title">
+            <details className="timer-settings" hidden={phase!=="lift"}><summary>Rest timer controls</summary><section className={`rest-timer-panel ${restFinished ? "is-finished" : ""}`} aria-labelledby="rest-timer-title">
               <div
                 className="rest-timer-ring"
                 style={{ "--rest-progress": `${restPercent * 3.6}deg` } as CSSProperties}
@@ -925,9 +948,12 @@ export default function GymTracker({
               </div>
             </section>
 
-            <div className="pairs-stack">
+            </details>
+            <div className="exercise-navigator" hidden={phase!=="lift"}><button type="button" aria-label="Previous exercise" disabled={focusedIndex<=0} onClick={()=>focusExercise(focusedIndex-1)}>←</button><label><span>Exercise {focusedIndex+1} of {sessionExercises.length}</span><select aria-label="Exercise to log" value={focusedSlot} onChange={event=>setFocusedExercise({day:selectedDay,slot:event.target.value})}>{sessionExercises.map((item,index)=><option key={item.id} value={item.id}>{index+1}. {EXERCISE_LIBRARY[activeLog.substitutions[item.id]??item.id]?.name??item.name}</option>)}</select></label><button type="button" aria-label="Next exercise" disabled={focusedIndex>=sessionExercises.length-1} onClick={()=>focusExercise(focusedIndex+1)}>→</button></div>
+            <p className="exercise-sequence-hint" hidden={phase!=="lift"}>{isFourDaySession ? "Finish each exercise’s sets, then move to the next." : "Use Next set to alternate your paired movements."}</p>
+            <div className="pairs-stack" hidden={phase!=="lift"}>
               {visiblePairs.map((pair, pairIndex) => (
-                <section className="pair-panel" key={pair.id}>
+                <section className="pair-panel" key={pair.id} hidden={!pair.exercises.some(item=>item.id===focusedSlot)}>
                   <div className="pair-heading">
                     <div>
                       <span>{pairIndex + 1}</span>
@@ -971,7 +997,7 @@ export default function GymTracker({
                       );
 
                       return (
-                        <article className="exercise-card" key={exercise.id}>
+                        <article className="exercise-card" key={exercise.id} hidden={exercise.id!==focusedSlot}>
                           <div className="exercise-info">
                             <div>
                               <span className="exercise-number">{exerciseIndex + 1}</span>
@@ -1109,7 +1135,7 @@ export default function GymTracker({
               ))}
             </div>
 
-            <details className="workout-notes"><summary>Session notes</summary>
+            <details className="workout-notes" hidden={phase!=="lift"}><summary>Session notes</summary>
             <label className="notes-field">
               <span>Session notes</span>
               <textarea
@@ -1128,14 +1154,14 @@ export default function GymTracker({
             </label>
 
             </details>
-            <div className="completion-bar">
+            <div className="completion-bar" hidden={phase!=="lift"}>
               <div>
                 <strong>
                   {activeLog.completed
                     ? "Workout complete"
                     : readyToComplete
-                      ? "Everything is checked—nice work."
-                      : "Complete the warm-up and working sets first."}
+                      ? "Lifting done. Cardio next."
+                      : "Your lifting log"}
                 </strong>
                 <span>{activeLog.completed ? "Your log is ready for the next session." : `${session.warmupDone} of ${WARMUP_ITEMS.length} warm-up steps · ${session.done} of ${session.total} working sets`}</span>
               </div>
@@ -1150,9 +1176,12 @@ export default function GymTracker({
                   disabled={!started || !readyToComplete || (sync.conflict || !sync.editable)}
                   onClick={completeWorkout}
                 >
-                  Complete workout
+                  Save lifting & go to cardio →
                 </button>
               )}
+            </div>
+            <div className="cardio-stage" hidden={phase!=="cardio"}>
+        <CardioPanel workoutKey={selectedDay} key={`${sync.accountChanged ? "signed-out-cardio" : user?.email ?? "guest-cardio"}-${selectedDay}`} tracker={tracker} disabled={!started || !user || !sync.editable || sync.conflict} saveLabel={sync.storageError ? `${syncLabel} · ${sync.storageError}` : syncLabel} onChange={mutateTracker} />
             </div>
           </article>
 
@@ -1185,7 +1214,7 @@ export default function GymTracker({
           </aside>
         </section>
 
-        <CardioPanel workoutKey={selectedDay} key={sync.accountChanged ? "signed-out-cardio" : user?.email ?? "guest-cardio"} tracker={tracker} disabled={!progressLoaded || !user || !sync.editable || sync.conflict} saveLabel={sync.storageError ? `${syncLabel} · ${sync.storageError}` : syncLabel} onChange={mutateTracker} />
+
         <details className="training-tools" id="training-tools" open={toolsOpen} onToggle={event=>setToolsOpen(event.currentTarget.open)}><summary>Plan, progress & tools</summary><div className="training-tools-content">
         <section className={`status-grid ${started ? "has-started" : ""}`} aria-labelledby="hero-title">
           <article className="card hero-card">
