@@ -1,52 +1,51 @@
 "use client";
+import { isSessionKey, sessionNumberForKey } from "./tracker-logic";
 
 import { useEffect, useMemo, useState } from "react";
+import { csvCell, downloadFile as download, downloadBackup, parseBackup, MAX_BACKUP_BYTES } from "./backup-logic";
+import type { SyncStatus } from "../lib/tracker-sync";
 import type { TrackerState } from "./tracker-types";
 import { scheduledDate } from "./tracker-logic";
-import { SCHEDULED_DAYS } from "./workout-data";
 
 type InstallPromptEvent = Event & {
   prompt: () => Promise<{ outcome: "accepted" | "dismissed" }>;
 };
 
 type AppToolsProps = {
+  blockMessage: string;
   lastSyncedAt: number | null;
-  onReset: () => void;
+  onReset: () => Promise<boolean>;
+  onRestore: (state: TrackerState) => Promise<boolean>;
+  localOnly: boolean;
+  canRestore: boolean;
   onSyncCheck: () => Promise<boolean>;
+  restarting: boolean;
   started: boolean;
-  syncStatus: "error" | "loading" | "saved" | "syncing";
+  syncStatus: SyncStatus;
   syncVersion: number;
   tracker: TrackerState;
   user: { email: string; name: string } | null;
 };
 
-function download(filename: string, contents: string, type: string) {
-  const url = URL.createObjectURL(new Blob([contents], { type }));
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.hidden = true;
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
-}
-
-function csvCell(value: unknown) {
-  const text = String(value ?? "");
-  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
-}
-
 export default function AppTools({
+  blockMessage,
   lastSyncedAt,
   onReset,
+  onRestore,
+  localOnly,
+  canRestore,
   onSyncCheck,
+  restarting,
   started,
   syncStatus,
   syncVersion,
   tracker,
   user,
 }: AppToolsProps) {
+  const [importState, setImportState] = useState<TrackerState | null>(null);
+  const [importMessage, setImportMessage] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [backupAcknowledged, setBackupAcknowledged] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const [showInstallHelp, setShowInstallHelp] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
@@ -78,7 +77,7 @@ export default function AppTools({
   }, []);
 
   const syncLabel =
-    syncStatus === "saved"
+    localOnly ? "This device only" : syncStatus === "queued" ? "Waiting to sync" : syncStatus === "saved"
       ? "Connected"
       : syncStatus === "syncing"
         ? "Saving now"
@@ -94,6 +93,7 @@ export default function AppTools({
       "exercise_slot",
       "set",
       "load",
+      "load_unit",
       "reps",
       "rir",
       "completed",
@@ -103,7 +103,8 @@ export default function AppTools({
       "waist",
       "sleep_hours",
     ]];
-    for (const [index, day] of SCHEDULED_DAYS.entries()) {
+    const workoutDays = Object.keys(tracker.workouts).map(Number).filter(day => isSessionKey(tracker, day)).sort((a, b) => a - b);
+    for (const day of workoutDays) {
       const log = tracker.workouts[String(day)];
       if (!log) continue;
       for (const [exerciseId, sets] of Object.entries(log.sets)) {
@@ -112,10 +113,11 @@ export default function AppTools({
           rows.push([
             "workout",
             scheduledDate(tracker, day),
-            index + 1,
+            sessionNumberForKey(tracker, day),
             log.substitutions?.[exerciseId] ?? exerciseId,
             setIndex + 1,
             set.load,
+            log.loadUnit,
             set.reps,
             set.rir,
             set.done,
@@ -139,15 +141,36 @@ export default function AppTools({
         "",
         "",
         "",
+        "",
         metric.protein,
         metric.steps,
-        `${metric.weight} ${tracker.profile.weightUnit}`.trim(),
+        `${metric.weight} ${metric.weightUnit ?? tracker.profile.weightUnit}`.trim(),
         metric.waist,
         metric.sleepHours,
       ]);
     }
     return rows.map((row) => row.map(csvCell).join(",")).join("\n");
   }, [tracker]);
+
+  const readBackup = async (file?: File) => {
+    setImportState(null);
+    setBackupAcknowledged(false);
+    setImportMessage("");
+    if (!file) return;
+    try {
+      if (file.size > MAX_BACKUP_BYTES) throw new Error("Choose a JSON backup smaller than 2 MB.");
+      setImportState(parseBackup(await file.text()));
+    } catch (error) { setImportMessage(error instanceof Error ? error.message : "Backup could not be read."); }
+  };
+  const restore = async () => {
+    if (!importState || !backupAcknowledged) return;
+    setImporting(true);
+    try {
+      if (await onRestore(importState)) { setImportState(null); setImportMessage("Backup restored. Review the save status above."); }
+      else setImportMessage("Restore paused. Resolve the save or connection issue, then try again.");
+    } catch { setImportMessage("Restore could not be completed. Your current records are preserved."); }
+    finally { setImporting(false); }
+  };
 
   const install = async () => {
     if (!installPrompt) {
@@ -197,7 +220,7 @@ export default function AppTools({
             <div><dt>Server version</dt><dd>{syncVersion || "—"}</dd></div>
             <div><dt>Last confirmed</dt><dd>{lastSyncedAt ? new Date(lastSyncedAt).toLocaleString() : "Not yet"}</dd></div>
           </dl>
-          <button className="secondary-button" disabled={!user || checkingSync} type="button" onClick={checkSync}>
+          <button className="secondary-button" disabled={!user || checkingSync || localOnly} type="button" onClick={checkSync}>
             {checkingSync ? "Checking…" : "Run sync check"}
           </button>
           {syncCheckResult && (
@@ -212,23 +235,36 @@ export default function AppTools({
         <span className="utility-icon" aria-hidden="true">⌁</span>
         <div>
           <p className="eyebrow">Your records</p>
-          <h2>Export or restart</h2>
+          <h2>Back up your training</h2>
           <p>Keep a portable copy of every workout and daily health entry.</p>
           <div className="data-buttons">
-            <button className="secondary-button" disabled={!started} type="button" onClick={() => download("gym-tracker-data.json", JSON.stringify(tracker, null, 2), "application/json")}>Export JSON</button>
+            <button className="secondary-button" disabled={!started} type="button" onClick={() => downloadBackup(tracker)}>Export JSON</button>
             <button className="secondary-button" disabled={!started} type="button" onClick={() => download("gym-tracker-data.csv", exportRows, "text/csv")}>Export CSV</button>
           </div>
+          <div className="restore-backup">
+            <label className="backup-file">Restore a JSON backup<input accept=".json,application/json" aria-label="Choose JSON backup" disabled={!canRestore || importing || restarting} type="file" onChange={event => { void readBackup(event.target.files?.[0]); event.target.value = ""; }} /></label>
+            {importState && <div className="reset-confirm" role="region" aria-label="Review backup before restoring">
+              <strong>Review this backup</strong>
+              <p>{Object.keys(importState.workouts).length} logged sessions · {Object.keys(importState.dailyMetrics).length} daily entries · Plan started {importState.startDate ?? "not yet"}.</p>
+              <p>Restoring replaces the current plan and syncs it to your account. Export your current records and confirm the download is saved before continuing.</p>
+              <button type="button" className="secondary-button" onClick={() => downloadBackup(tracker, "gym-tracker-before-restore")}>Save current backup</button>
+              <label className="restore-ack"><input type="checkbox" checked={backupAcknowledged} onChange={event => setBackupAcknowledged(event.target.checked)} /> I saved a copy of my current records.</label>
+              <div><button type="button" disabled={importing} onClick={() => setImportState(null)}>Cancel</button><button type="button" disabled={!backupAcknowledged || importing || restarting || !canRestore} onClick={() => void restore()}>{importing ? "Restoring…" : "Restore this backup"}</button></div>
+            </div>}
+            {importMessage && <p role="status">{importMessage}</p>}
+          </div>
           {!resetArmed ? (
-            <button className="text-danger" disabled={!started} type="button" onClick={() => setResetArmed(true)}>Restart challenge</button>
+            <button className="text-danger" disabled={!started || restarting || localOnly || !canRestore} type="button" onClick={() => setResetArmed(true)}>Archive and restart plan</button>
           ) : (
             <div className="reset-confirm" role="alert">
-              <p>This clears workouts and scheduling. Nutrition history and goals stay saved.</p>
+              <p>Your current training history will be archived first. Daily health history and goals carry into the new ongoing plan.</p>
               <div>
                 <button type="button" onClick={() => setResetArmed(false)}>Cancel</button>
-                <button type="button" onClick={() => { onReset(); setResetArmed(false); }}>Yes, restart</button>
+                <button disabled={restarting} type="button" onClick={async () => { if (await onReset()) setResetArmed(false); }}>{restarting ? "Archiving…" : "Archive & start"}</button>
               </div>
             </div>
           )}
+          {blockMessage && <span className="block-message" role="status">{blockMessage}</span>}
         </div>
       </article>
     </section>

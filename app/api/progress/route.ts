@@ -24,23 +24,24 @@ export async function PUT(request: Request) {
   if (!user) return Response.json({ error: "Sign in required" }, { status: 401 });
 
   const contentLength = Number(request.headers.get("content-length") ?? 0);
-  if (contentLength > 80_000) {
+  if (contentLength > 2_000_000) {
     return Response.json({ error: "Progress payload is too large." }, { status: 413 });
   }
 
   try {
-    const body = (await request.json()) as {
-      baseVersion?: unknown;
-      state?: TrackerState;
-    };
-    const baseVersion = Number(body.baseVersion);
+    const text = await request.text();
+    if (text.length > 2_000_000) return Response.json({ error: "Progress payload is too large." }, { status: 413 });
+    let body: { baseVersion?: unknown; state?: TrackerState };
+    try { body = JSON.parse(text); } catch { return Response.json({ error: "Invalid JSON." }, { status: 400 }); }
+    if (!body || typeof body !== "object") return Response.json({ error: "Invalid progress data." }, { status: 400 });
+    const baseVersion = body.baseVersion;
     const state = sanitizeTrackerState(body.state);
 
-    if (!Number.isInteger(baseVersion) || baseVersion < 0 || !state) {
+    if (typeof baseVersion !== "number" || !Number.isSafeInteger(baseVersion) || baseVersion < 0 || !state) {
       return Response.json({ error: "Invalid progress data." }, { status: 400 });
     }
 
-    const result = await writeProgress(user.email, state, baseVersion);
+    const result = await writeProgress(user.email, state, baseVersion, body.state?.schemaVersion ?? 5);
     return Response.json(result.progress, { status: result.conflict ? 409 : 200 });
   } catch {
     return Response.json(

@@ -24,13 +24,14 @@ export default function WellnessPanel({
 }: WellnessPanelProps) {
   const [metricDate, setMetricDate] = useState(localIsoDate());
   const metric = { ...blankMetric(), ...tracker.dailyMetrics[metricDate] };
+  const metricWeightUnit = metric.weightUnit ?? tracker.profile.weightUnit;
   const suggestedProtein = useMemo(() => {
     const currentWeight = numberValue(metric.weight);
     if (!currentWeight) return null;
     const kilograms =
-      tracker.profile.weightUnit === "kg" ? currentWeight : currentWeight / 2.20462;
+      metricWeightUnit === "kg" ? currentWeight : currentWeight / 2.20462;
     return Math.round((kilograms * 1.6) / 5) * 5;
-  }, [metric.weight, tracker.profile.weightUnit]);
+  }, [metric.weight, metricWeightUnit]);
   const proteinGoal = numberValue(tracker.profile.proteinGoal);
   const stepGoal = numberValue(tracker.profile.stepGoal);
   const protein = numberValue(metric.protein);
@@ -56,7 +57,7 @@ export default function WellnessPanel({
       {!started && (
         <div className="start-notice compact-notice">
           <strong>Start first</strong>
-          <span>Your daily health logs will sync with the challenge.</span>
+          <span>Your daily health logs will sync with your training plan.</span>
         </div>
       )}
 
@@ -73,12 +74,12 @@ export default function WellnessPanel({
         </label>
         <label>
           <span>Body weight</span>
-          <div><input disabled={!started} inputMode="decimal" placeholder="—" value={metric.weight} onChange={(event) => onMetricChange(metricDate, { weight: event.target.value })} /><b>{tracker.profile.weightUnit}</b></div>
+          <div><input disabled={!started} inputMode="decimal" placeholder="—" value={metric.weight} onChange={(event) => onMetricChange(metricDate, { weight: event.target.value, weightUnit: metricWeightUnit })} /><b>{metricWeightUnit}</b></div>
           <small>Use similar conditions</small>
         </label>
         <label>
           <span>Waist</span>
-          <div><input disabled={!started} inputMode="decimal" placeholder="—" value={metric.waist} onChange={(event) => onMetricChange(metricDate, { waist: event.target.value })} /><b>{tracker.profile.weightUnit === "kg" ? "cm" : "in"}</b></div>
+          <div><input disabled={!started} inputMode="decimal" placeholder="—" value={metric.waist} onChange={(event) => onMetricChange(metricDate, { waist: event.target.value, weightUnit: metricWeightUnit })} /><b>{metricWeightUnit === "kg" ? "cm" : "in"}</b></div>
           <small>Optional</small>
         </label>
         <label>
@@ -102,6 +103,13 @@ export default function WellnessPanel({
             </select>
           </label>
           <label>
+            <span>Default lifting unit</span>
+            <select disabled={!started} value={tracker.profile.loadUnit} onChange={(event) => onProfileChange({ loadUnit: event.target.value === "kg" ? "kg" : "lb" })}>
+              <option value="lb">Pounds (lb)</option>
+              <option value="kg">Kilograms (kg)</option>
+            </select>
+          </label>
+          <label>
             <span>Protein goal</span>
             <div><input disabled={!started} inputMode="numeric" placeholder="Set goal" value={tracker.profile.proteinGoal} onChange={(event) => onProfileChange({ proteinGoal: event.target.value })} /><b>g/day</b></div>
           </label>
@@ -119,7 +127,7 @@ export default function WellnessPanel({
                 Use suggestion
               </button>
             )}
-            <a href="https://pubmed.ncbi.nlm.nih.gov/28642676/" rel="noreferrer" target="_blank">Evidence note ↗</a>
+            <a href="https://pubmed.ncbi.nlm.nih.gov/28698222/" rel="noreferrer" target="_blank">Evidence note ↗</a>
           </div>
         </div>
       </details>
