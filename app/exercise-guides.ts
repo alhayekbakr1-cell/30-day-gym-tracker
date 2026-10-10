@@ -337,6 +337,42 @@ export const EXERCISE_GUIDES: Record<string, ExerciseGuide> = {
       url: "https://www.mayoclinic.org/healthy-lifestyle/fitness/multimedia/calf-raise/vid-20084681",
     },
   },
+  "dead-bug": {
+    image: "/exercises/dead-bug.webp",
+    imageAlt: "Side-by-side setup and opposite arm-and-leg extension positions for a dead bug exercise",
+    setup: "Lie on your back with hips and knees bent to about 90 degrees and both arms reaching toward the ceiling. Gently press your low back toward the mat.",
+    steps: [
+      "Brace as if preparing for a cough while continuing to breathe quietly.",
+      "Slowly extend one leg and the opposite arm only as far as you can without your low back lifting.",
+      "Return with control, reset your brace, and alternate sides without rushing.",
+    ],
+    checks: [
+      "Your ribs stay down and your low back remains gently connected to the mat.",
+      "The moving arm and leg stop before your trunk position changes.",
+    ],
+    reference: {
+      label: "Review the ACE supine dead-bug guide",
+      url: "https://www.acefitness.org/resources/everyone/exercise-library/147/supine-dead-bug/",
+    },
+  },
+  "cable-crunch": {
+    image: "/exercises/kneeling-cable-crunch.webp",
+    imageAlt: "Side-by-side tall-kneeling and shortened positions for a kneeling rope cable crunch",
+    setup: "Attach a rope to a high pulley, kneel facing the machine, and hold the rope beside your temples. Start tall with your hips stable and the cable already under light tension.",
+    steps: [
+      "Brace and bring your ribs toward your pelvis by rounding through the trunk rather than sitting your hips backward.",
+      "Pause briefly when your abdominal muscles are shortened; keep your hands quiet beside your head.",
+      "Return slowly to the tall start position without letting the weight stack pull you upward.",
+    ],
+    checks: [
+      "Your hips stay nearly fixed while the rib cage moves toward the pelvis.",
+      "Your arms hold the rope in place instead of pulling it down like a pulldown.",
+    ],
+    reference: {
+      label: "Read ACE's evidence-based abdominal-training overview",
+      url: "https://www.acefitness.org/resources/pros/expert-articles/8989/crunch-time-an-evidence-based-approach-to-training-the-abs/",
+    },
+  },
 };
 
 export const WARMUP_GUIDES: Partial<Record<string, ExerciseGuide>> = {

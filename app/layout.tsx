@@ -13,9 +13,9 @@ const fraunces = Fraunces({
 });
 
 export const metadata: Metadata = {
-  title: "30-Day Gym Tracker",
+  title: "Gym Tracker",
   description:
-    "A shift-friendly, account-synced 30-day strength, recovery, and nutrition tracker.",
+    "A shift-friendly, account-synced strength, recovery, and nutrition tracker with an ongoing workout calendar.",
   manifest: "/manifest.webmanifest",
   other: {
     "codex-preview": "development",

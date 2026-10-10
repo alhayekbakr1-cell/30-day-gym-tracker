@@ -32,6 +32,11 @@ test("renders development preview metadata", async () => {
   const html = await response.text();
   assert.match(html, developmentPreviewMeta);
   assert.match(html, /Progress dashboard/i);
+  assert.match(html, /Coach snapshot/i);
+  assert.match(html, /Copy for ChatGPT/i);
+  assert.match(html, /Upper A/i);
+  assert.match(html, /A balanced four-day routine/i);
+  assert.match(html, /Working sets per four-session cycle/i);
   assert.match(html, /Daily recovery &amp; nutrition/i);
   assert.match(html, /Install the app/i);
   assert.match(html, /manifest\.webmanifest/i);

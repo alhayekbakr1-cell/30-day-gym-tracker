@@ -10,7 +10,12 @@ import {
   useState,
 } from "react";
 import AppTools from "./AppTools";
+import CoachPanel from "./CoachPanel";
+import ProgramIntelligence from "./ProgramIntelligence";
+import FourDaySetup from "./FourDaySetup";
+import { FOUR_DAY_KEY_START, initialFourDaySets, isFourDayKey } from "./four-day-data";
 import ProgressDashboard from "./ProgressDashboard";
+import SmartToday from "./SmartToday";
 import WellnessPanel from "./WellnessPanel";
 import type {
   DailyMetric,
@@ -21,27 +26,28 @@ import type {
   WorkoutLog,
 } from "./tracker-types";
 import {
-  CHALLENGE_LENGTH_DAYS,
   EXERCISE_LIBRARY,
   EXERCISE_SUBSTITUTIONS,
-  SCHEDULED_DAYS,
   WARMUP_ITEMS,
   WORKOUTS,
-  workoutIdForDay,
-  workoutIndexForDay,
 } from "./workout-data";
 import {
-  challengeDayForDate,
-  dayDifference,
+  activateFourDayPlan,
+  changeFourDaySets,
+  rescheduleSession,
+  sessionNumberForKey,
+  convertLoad,
   defaultSchedule,
   EMPTY_STATE,
   isoDateOffset,
+  formatLoad,
   loadRecommendation,
   localIsoDate,
-  mergeTrackerStates,
-  normalizeTrackerState,
+  nextWorkoutDay,
   previousPerformance,
   scheduledDate,
+  scheduledDaysInRange,
+  workoutForDay,
 } from "./tracker-logic";
 import {
   EXERCISE_GUIDES,
@@ -49,8 +55,13 @@ import {
   type ExerciseGuide,
 } from "./exercise-guides";
 
+import { useTrackerSync } from "./use-tracker-sync";
+import { useCountdown } from "./use-countdown";
+import { copyPreviousSets, sessionProgress, validSet, hydratedWorkoutLog, exercisePrescriptionFor, visibleWorkoutPairs, warmupItemsForSession } from "./session-logic";
+import { downloadBackup } from "./backup-logic";
+
 type AuthUser = { email: string; name: string } | null;
-type SyncStatus = "error" | "loading" | "saved" | "syncing";
+
 
 type GymTrackerProps = {
   signInPath: string;
@@ -82,51 +93,37 @@ function longDate(date: string) {
   }).format(dateFromIso(date));
 }
 
+function monthStart(date: string) {
+  return `${date.slice(0, 7)}-01`;
+}
+
+function monthOffset(date: string, offset: number) {
+  const [year, month] = date.split("-").map(Number);
+  return localIsoDate(new Date(year, month - 1 + offset, 1, 12));
+}
+
+function monthEnd(date: string) {
+  return isoDateOffset(monthOffset(date, 1), -1);
+}
+
+function monthLabel(date: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    year: "numeric",
+  }).format(dateFromIso(date));
+}
+
+function monthCalendarDates(date: string) {
+  const firstWeekday = dateFromIso(date).getDay();
+  const count = Number(monthEnd(date).slice(-2));
+  return [
+    ...Array<string | null>(firstWeekday).fill(null),
+    ...Array.from({ length: count }, (_, index) => isoDateOffset(date, index)),
+  ];
+}
+
 function blankSet(): SetLog {
   return { done: false, load: "", reps: "", rir: "" };
-}
-
-function createWorkoutLog(day: number): WorkoutLog {
-  const workout = WORKOUTS[workoutIdForDay(day)];
-  const sets: Record<string, SetLog[]> = {};
-  for (const pair of workout.pairs) {
-    for (const exercise of pair.exercises) {
-      sets[exercise.id] = [blankSet(), blankSet(), blankSet()];
-    }
-  }
-
-  return {
-    completed: false,
-    completedAt: null,
-    lowSleep: false,
-    modifiedAt: new Date(0).toISOString(),
-    note: "",
-    readiness: { energy: "", sleepHours: "", soreness: "" },
-    sets,
-    substitutions: {},
-    warmup: Object.fromEntries(WARMUP_ITEMS.map((item) => [item.id, false])),
-  };
-}
-
-function hydratedWorkoutLog(day: number, saved?: WorkoutLog): WorkoutLog {
-  const base = createWorkoutLog(day);
-  if (!saved) return base;
-
-  const sets = { ...base.sets };
-  for (const [exerciseId, defaultSets] of Object.entries(base.sets)) {
-    sets[exerciseId] = defaultSets.map(
-      (set, index) => saved.sets?.[exerciseId]?.[index] ?? set,
-    );
-  }
-
-  return {
-    ...base,
-    ...saved,
-    readiness: { ...base.readiness, ...saved.readiness },
-    sets,
-    substitutions: { ...base.substitutions, ...saved.substitutions },
-    warmup: { ...base.warmup, ...saved.warmup },
-  };
 }
 
 function formatTimer(seconds: number) {
@@ -134,14 +131,6 @@ function formatTimer(seconds: number) {
   return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-function sleepModeExerciseLimit(lowSleep: boolean) {
-  return lowSleep ? 4 : 6;
-}
-
-function workingSetCount(day: number, exerciseIndex: number, lowSleep: boolean) {
-  if (lowSleep) return 2;
-  return workoutIndexForDay(day) < 6 || exerciseIndex >= 4 ? 2 : 3;
-}
 
 function FormGuide({
   className = "",
@@ -158,6 +147,15 @@ function FormGuide({
         <span className="form-guide-symbol" aria-hidden="true">
           ▶
         </span>
+        <Image
+          alt=""
+          aria-hidden="true"
+          className="form-guide-thumb"
+          height={90}
+          src={guide.image}
+          unoptimized
+          width={160}
+        />
         <span>
           <strong>{label}</strong>
           <small>Start → finish · steps · self-check</small>
@@ -225,208 +223,74 @@ export default function GymTracker({
   user,
 }: GymTrackerProps) {
   const isPreviewUser = user?.email === "preview@gym.local";
-  const [tracker, setTracker] = useState<TrackerState>(EMPTY_STATE);
-  const [selectedDay, setSelectedDay] = useState<number>(SCHEDULED_DAYS[0]);
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>(
-    user ? "loading" : "saved",
-  );
-  const [warmupSeconds, setWarmupSeconds] = useState(300);
-  const [warmupRunning, setWarmupRunning] = useState(false);
-  const [restDuration, setRestDuration] = useState(90);
-  const [restSeconds, setRestSeconds] = useState(90);
-  const [restRunning, setRestRunning] = useState(false);
-  const [restFinished, setRestFinished] = useState(false);
-  const [scheduleMessage, setScheduleMessage] = useState("");
-  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
-  const [syncVersion, setSyncVersion] = useState(0);
-  const trackerRef = useRef(tracker);
-  const versionRef = useRef(0);
-  const savingRef = useRef(false);
-  const pendingRef = useRef<TrackerState | null>(null);
-
-  useEffect(() => {
-    trackerRef.current = tracker;
+  const sync = useTrackerSync(user?.email ?? null);
+  const { state: tracker, status: syncStatus, loaded: progressLoaded, version: syncVersion, updatedAt: lastSyncedAt, controller } = sync;
+  const [selectedKey, setSelectedDay] = useState(1);
+  const selectedDay = tracker.startDate ? selectedKey : FOUR_DAY_KEY_START;
+  const workoutState = useMemo<TrackerState>(() => tracker.startDate ? tracker : {
+    ...tracker, fourDayPlan: { id: "preview", version: 1, startsOn: localIsoDate(), modifiedAt: new Date(0).toISOString(), sets: initialFourDaySets(), rir: 3, shifts: {} },
   }, [tracker]);
-
-  const loadProgress = useCallback(async () => {
-    if (!user) return;
-    if (isPreviewUser) {
-      setSyncStatus("saved");
-      return;
-    }
-    setSyncStatus("loading");
-
-    try {
-      const response = await fetch("/api/progress", { cache: "no-store" });
-      if (!response.ok) throw new Error("load failed");
-      const progress = (await response.json()) as SyncedProgress;
-      versionRef.current = progress.version;
-      setSyncVersion(progress.version);
-      setLastSyncedAt(progress.updatedAt);
-      const next = normalizeTrackerState(progress.state);
-      trackerRef.current = next;
-      setTracker(next);
-      const firstIncomplete = SCHEDULED_DAYS.find(
-        (day) => !next.workouts[String(day)]?.completed,
-      );
-      if (firstIncomplete) setSelectedDay(firstIncomplete);
-      setSyncStatus("saved");
-    } catch {
-      setSyncStatus("error");
-    }
-  }, [isPreviewUser, user]);
+  const [calendarMonth, setCalendarMonth] = useState(monthStart(localIsoDate()));
+  const [scheduleMessage, setScheduleMessage] = useState("");
+  const [blockMessage, setBlockMessage] = useState("");
+  const [restarting, setRestarting] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
+  const [sessionMessage, setSessionMessage] = useState("");
+  const selectedBlock = useRef<string | null>(null);
+  const timerKey = `gym-tracker:timer:${encodeURIComponent(user?.email ?? "guest")}:${tracker.blockId ?? "preview"}:${selectedDay}`;
+  const warmupTimer = useCountdown(`${timerKey}:warmup`, 300);
+  const restTimer = useCountdown(`${timerKey}:rest`, 120);
+  const { remaining: warmupSeconds, running: warmupRunning } = warmupTimer;
+  const { remaining: restSeconds, duration: restDuration, running: restRunning, finished: restFinished } = restTimer;
+  const mutateTracker = useCallback((transform: (current: TrackerState) => TrackerState) => controller.mutate(transform), [controller]);
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => void loadProgress(), 0);
+    const selectionId = `${tracker.blockId}:${tracker.fourDayPlan?.id ?? "legacy"}`;
+    if (!progressLoaded || !tracker.blockId || selectedBlock.current === selectionId) return;
+    const day = nextWorkoutDay(tracker);
+    const date = scheduledDate(tracker, day);
+    const timeout = window.setTimeout(() => {
+      selectedBlock.current = selectionId;
+      setSelectedDay(day);
+      if (date) setCalendarMonth(monthStart(date));
+    }, 0);
     return () => window.clearTimeout(timeout);
-  }, [loadProgress]);
+  }, [progressLoaded, tracker]);
 
-  useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === "visible" && !savingRef.current) {
-        void loadProgress();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [loadProgress]);
-
-  const flushQueue = useCallback(async () => {
-    if (!user || savingRef.current) return;
-    if (isPreviewUser) {
-      pendingRef.current = null;
-      setSyncStatus("saved");
-      return;
-    }
-    savingRef.current = true;
-
-    while (pendingRef.current) {
-      let stateToSave = pendingRef.current;
-      pendingRef.current = null;
-      setSyncStatus("syncing");
-
-      try {
-        const response = await fetch("/api/progress", {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            baseVersion: versionRef.current,
-            state: stateToSave,
-          }),
-        });
-        const progress = (await response.json()) as SyncedProgress;
-
-        if (response.status === 409) {
-          versionRef.current = progress.version;
-          setSyncVersion(progress.version);
-          setLastSyncedAt(progress.updatedAt);
-          stateToSave = mergeTrackerStates(progress.state, stateToSave);
-          trackerRef.current = stateToSave;
-          setTracker(stateToSave);
-          pendingRef.current = stateToSave;
-          continue;
-        }
-        if (!response.ok) throw new Error("save failed");
-
-        versionRef.current = progress.version;
-        setSyncVersion(progress.version);
-        setLastSyncedAt(progress.updatedAt);
-        setSyncStatus("saved");
-      } catch {
-        pendingRef.current = stateToSave;
-        setSyncStatus("error");
-        break;
-      }
-    }
-
-    savingRef.current = false;
-  }, [isPreviewUser, user]);
-
-  const mutateTracker = useCallback(
-    (transform: (current: TrackerState) => TrackerState) => {
-      setTracker((current) => {
-        const next = transform(current);
-        trackerRef.current = next;
-        pendingRef.current = next;
-        queueMicrotask(() => void flushQueue());
-        return next;
-      });
-    },
-    [flushQueue],
+  const started = Boolean(tracker.startDate) && progressLoaded && !restarting;
+  const completedCount = Object.values(tracker.workouts).filter(
+    (log) => log.completed,
+  ).length;
+  const monthSessionDays = useMemo(
+    () => scheduledDaysInRange(tracker, calendarMonth, monthEnd(calendarMonth)),
+    [calendarMonth, tracker],
   );
-
-  useEffect(() => {
-    if (!warmupRunning) return;
-    const interval = window.setInterval(() => {
-      setWarmupSeconds((seconds) => {
-        if (seconds <= 1) {
-          setWarmupRunning(false);
-          return 0;
-        }
-        return seconds - 1;
-      });
-    }, 1000);
-    return () => window.clearInterval(interval);
-  }, [warmupRunning]);
-
-  useEffect(() => {
-    if (!restRunning) return;
-    const interval = window.setInterval(() => {
-      setRestSeconds((seconds) => {
-        if (seconds <= 1) {
-          setRestRunning(false);
-          setRestFinished(true);
-          if ("vibrate" in navigator) navigator.vibrate([180, 100, 180]);
-          return 0;
-        }
-        return seconds - 1;
-      });
-    }, 1_000);
-    return () => window.clearInterval(interval);
-  }, [restRunning]);
-
-  const started = Boolean(tracker.startDate);
-  const completedCount = SCHEDULED_DAYS.filter(
+  const completedThisMonth = monthSessionDays.filter(
     (day) => tracker.workouts[String(day)]?.completed,
   ).length;
   const progressPercent = Math.round(
-    (completedCount / SCHEDULED_DAYS.length) * 100,
+    monthSessionDays.length ? (completedThisMonth / monthSessionDays.length) * 100 : 0,
   );
-  const nextIncomplete =
-    SCHEDULED_DAYS.find((day) => !tracker.workouts[String(day)]?.completed) ??
-    SCHEDULED_DAYS[SCHEDULED_DAYS.length - 1];
-  const sessionNumber =
-    SCHEDULED_DAYS.indexOf(
-      selectedDay as (typeof SCHEDULED_DAYS)[number],
-    ) + 1;
+  const nextIncomplete = nextWorkoutDay(tracker);
+  const sessionNumber = tracker.startDate ? sessionNumberForKey(tracker, selectedDay) : 1;
   const calendarWorkouts = useMemo(() => {
-    const mapped = new Map<number, number>();
-    for (const day of SCHEDULED_DAYS) {
-      if (!tracker.startDate) {
-        mapped.set(day, day);
-        continue;
-      }
+    const mapped = new Map<string, number>();
+    for (const day of monthSessionDays) {
       const date = scheduledDate(tracker, day);
       if (!date) continue;
-      const challengeDay = challengeDayForDate(tracker.startDate, date);
-      if (challengeDay >= 1 && challengeDay <= CHALLENGE_LENGTH_DAYS) {
-        mapped.set(challengeDay, day);
-      }
+      mapped.set(date, day);
     }
     return mapped;
-  }, [tracker]);
+  }, [monthSessionDays, tracker]);
+  const calendarDates = useMemo(() => monthCalendarDates(calendarMonth), [calendarMonth]);
 
-  const workoutId = workoutIdForDay(selectedDay);
-  const workout = WORKOUTS[workoutId];
+  const workout = workoutForDay(workoutState, selectedDay);
+  const workoutId = workout.id;
   const activeScheduledDate = scheduledDate(tracker, selectedDay);
-  const activeLog = useMemo(
-    () => hydratedWorkoutLog(selectedDay, tracker.workouts[String(selectedDay)]),
-    [selectedDay, tracker.workouts],
-  );
-  const visibleExerciseLimit = sleepModeExerciseLimit(activeLog.lowSleep);
-  const visiblePairs = activeLog.lowSleep
-    ? workout.pairs.slice(0, 2)
-    : workout.pairs;
+  const activeLog = useMemo(() => hydratedWorkoutLog(workoutState, selectedDay), [selectedDay, workoutState]);
+  const visiblePairs = visibleWorkoutPairs(workoutState, selectedDay, activeLog);
+  const isFourDaySession = isFourDayKey(selectedDay);
+  const warmupItems = warmupItemsForSession(selectedDay);
   const sleepHours = Number(activeLog.readiness.sleepHours);
   const energy = Number(activeLog.readiness.energy);
   const soreness = Number(activeLog.readiness.soreness);
@@ -441,32 +305,18 @@ export default function GymTracker({
     ? Math.round((restSeconds / restDuration) * 100)
     : 0;
 
-  const readyToComplete = useMemo(() => {
-    const warmupReady = WARMUP_ITEMS.every(
-      (item) => activeLog.warmup[item.id],
-    );
-    const exercises = workout.pairs
-      .flatMap((pair) => pair.exercises)
-      .slice(0, visibleExerciseLimit);
-    const setsReady = exercises.every((exercise, exerciseIndex) => {
-      const required = workingSetCount(
-        selectedDay,
-        exerciseIndex,
-        activeLog.lowSleep,
-      );
-      return (activeLog.sets[exercise.id] ?? [])
-        .slice(0, required)
-        .every((set) => set.done);
-    });
-    return warmupReady && setsReady;
-  }, [activeLog, selectedDay, visibleExerciseLimit, workout.pairs]);
+  const session = sessionProgress(workoutState, selectedDay, activeLog);
+  const readyToComplete = session.ready;
+  const editable = started && !activeLog.completed && !sync.conflict;
 
   const updateWorkout = useCallback(
     (day: number, transform: (log: WorkoutLog) => WorkoutLog) => {
-      if (!trackerRef.current.startDate) return;
+      if (!controller.getSnapshot().state.startDate) return;
       mutateTracker((current) => {
+        const date = scheduledDate(current, day);
+        if (!date || !scheduledDaysInRange(current, date, date).includes(day)) return current;
         const key = String(day);
-        const currentLog = hydratedWorkoutLog(day, current.workouts[key]);
+        const currentLog = hydratedWorkoutLog(current, day);
         const nextLog = transform(currentLog);
         return {
           ...current,
@@ -477,14 +327,15 @@ export default function GymTracker({
         };
       });
     },
-    [mutateTracker],
+    [controller, mutateTracker],
   );
 
   const chooseDay = (day: number, scroll = true) => {
-    setWarmupRunning(false);
-    setWarmupSeconds(300);
     setScheduleMessage("");
+    setSessionMessage("");
     setSelectedDay(day);
+    const date = scheduledDate(controller.getSnapshot().state, day);
+    if (date) setCalendarMonth(monthStart(date));
     if (scroll) {
       window.setTimeout(() => {
         document
@@ -495,6 +346,7 @@ export default function GymTracker({
   };
 
   const startChallenge = () => {
+    if (!progressLoaded || restarting || sync.conflict) return;
     if (!user) {
       window.location.assign(signInPath);
       return;
@@ -506,18 +358,20 @@ export default function GymTracker({
     }
 
     const startDate = localIsoDate();
-    const next: TrackerState = {
+    const baseline: TrackerState = {
       ...EMPTY_STATE,
-      dailyMetrics: trackerRef.current.dailyMetrics,
-      profile: trackerRef.current.profile,
-      schedule: defaultSchedule(startDate),
+      blockId: crypto.randomUUID(),
+      dailyMetrics: controller.getSnapshot().state.dailyMetrics,
+      programVersion: 3,
+      profile: controller.getSnapshot().state.profile,
+      schedule: defaultSchedule(),
       scheduleModifiedAt: nowIso(),
       startDate,
       workouts: {},
     };
-    setWarmupRunning(false);
-    setWarmupSeconds(300);
-    setSelectedDay(SCHEDULED_DAYS[0]);
+    const next = activateFourDayPlan(baseline, startDate, crypto.randomUUID());
+    setSelectedDay(FOUR_DAY_KEY_START);
+    setCalendarMonth(monthStart(startDate));
     mutateTracker(() => next);
     window.setTimeout(() => {
       document
@@ -544,7 +398,8 @@ export default function GymTracker({
     updateWorkout(selectedDay, (log) => {
       const currentSets = [...(log.sets[exerciseId] ?? [])];
       while (currentSets.length < 3) currentSets.push(blankSet());
-      currentSets[setIndex] = { ...currentSets[setIndex], ...patch };
+      const nextSet = { ...currentSets[setIndex], ...patch };
+      currentSets[setIndex] = { ...nextSet, done: nextSet.done && validSet(nextSet) };
       return {
         ...log,
         completed: false,
@@ -552,12 +407,7 @@ export default function GymTracker({
         sets: { ...log.sets, [exerciseId]: currentSets },
       };
     });
-    if (patch.done === true) {
-      setRestDuration(suggestedRest);
-      setRestSeconds(suggestedRest);
-      setRestFinished(false);
-      setRestRunning(true);
-    }
+    if (patch.done === true) restTimer.start(suggestedRest);
   };
 
   const toggleLowSleep = () => {
@@ -576,6 +426,23 @@ export default function GymTracker({
       completedAt: null,
       lowSleep,
     }));
+  };
+
+  const openSmartWorkout = (shortMode: boolean) => {
+    if (!started) {
+      startChallenge();
+      return;
+    }
+    const day = nextWorkoutDay(controller.getSnapshot().state);
+    chooseDay(day);
+    if (shortMode) {
+      updateWorkout(day, (log) => ({
+        ...log,
+        completed: false,
+        completedAt: null,
+        lowSleep: true,
+      }));
+    }
   };
 
   const updateReadiness = (
@@ -607,39 +474,23 @@ export default function GymTracker({
   };
 
   const rescheduleWorkout = (date: string) => {
-    if (!tracker.startDate || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
-    if (activeLog.completed) {
-      setScheduleMessage("Completed sessions keep their original date.");
-      return;
-    }
-    const challengeDay = challengeDayForDate(tracker.startDate, date);
-    if (challengeDay < 1 || challengeDay > CHALLENGE_LENGTH_DAYS) {
-      setScheduleMessage("Choose a date inside this 30-day challenge.");
-      return;
-    }
-    const index = SCHEDULED_DAYS.indexOf(
-      selectedDay as (typeof SCHEDULED_DAYS)[number],
-    );
-    const previousDay = SCHEDULED_DAYS[index - 1];
-    const nextDay = SCHEDULED_DAYS[index + 1];
-    const previousDate = previousDay
-      ? scheduledDate(tracker, previousDay)
-      : null;
-    const nextDate = nextDay ? scheduledDate(tracker, nextDay) : null;
-    if (previousDate && dayDifference(previousDate, date) < 2) {
-      setScheduleMessage("Keep at least one full recovery day after the prior session.");
-      return;
-    }
-    if (nextDate && dayDifference(date, nextDate) < 2) {
-      setScheduleMessage("Keep at least one full recovery day before the next session.");
-      return;
-    }
-    mutateTracker((current) => ({
-      ...current,
-      schedule: { ...current.schedule, [String(selectedDay)]: date },
-      scheduleModifiedAt: nowIso(),
-    }));
-    setScheduleMessage(`Moved to ${longDate(date)}.`);
+    try {
+      const next = rescheduleSession(controller.getSnapshot().state, selectedDay, date);
+      mutateTracker(() => next);
+      setCalendarMonth(monthStart(date));
+      setScheduleMessage(isFourDaySession ? "This session and following sessions moved together. The rotation stays in order." : `Moved to ${longDate(date)}.`);
+    } catch (error) { setScheduleMessage(error instanceof Error ? error.message : "Choose another date."); }
+  };
+
+  const activateFourDays = async (date: string) => {
+    if (!await controller.sync() || controller.getSnapshot().pending) throw new Error("Sync your current records before switching plans.");
+    const current = controller.getSnapshot().state;
+    const next = activateFourDayPlan(current, date, crypto.randomUUID());
+    downloadBackup(current, "gym-tracker-before-four-days");
+    mutateTracker(() => next);
+    chooseDay(nextWorkoutDay(next));
+    if (!await controller.sync(false)) setBlockMessage("Your four-day transition is saved on this device and waiting to sync. Check save status before closing.");
+    else setBlockMessage("Four-day plan saved. Your earlier workouts and unfinished sessions are preserved.");
   };
 
   const updateDailyMetric = (date: string, patch: Partial<DailyMetric>) => {
@@ -648,14 +499,11 @@ export default function GymTracker({
       dailyMetrics: {
         ...current.dailyMetrics,
         [date]: {
-          modifiedAt: nowIso(),
-          protein: "",
-          sleepHours: "",
-          steps: "",
-          waist: "",
-          weight: "",
-          ...current.dailyMetrics[date],
+          ...(current.dailyMetrics[date] ?? {
+            modifiedAt: new Date(0).toISOString(), protein: "", sleepHours: "", steps: "", waist: "", weight: "",
+          }),
           ...patch,
+          modifiedAt: nowIso(),
         },
       },
     }));
@@ -668,38 +516,48 @@ export default function GymTracker({
     }));
   };
 
-  const resetChallenge = () => {
-    const current = trackerRef.current;
-    const next: TrackerState = {
-      ...EMPTY_STATE,
-      dailyMetrics: current.dailyMetrics,
-      profile: current.profile,
-    };
-    setSelectedDay(SCHEDULED_DAYS[0]);
-    setWarmupRunning(false);
-    setWarmupSeconds(300);
-    setRestRunning(false);
-    setRestSeconds(restDuration);
-    mutateTracker(() => next);
-  };
-
-  const runSyncCheck = async () => {
-    if (!user) return false;
-    if (isPreviewUser) return true;
-    if (pendingRef.current) await flushQueue();
+  const resetChallenge = async () => {
+    if (!user || isPreviewUser || !controller.getSnapshot().state.startDate) return false;
+    setRestarting(true);
+    setBlockMessage("");
     try {
-      const response = await fetch("/api/progress", { cache: "no-store" });
-      if (!response.ok) throw new Error("sync check failed");
-      const progress = (await response.json()) as SyncedProgress;
-      versionRef.current = progress.version;
-      setSyncVersion(progress.version);
-      setLastSyncedAt(progress.updatedAt);
-      setSyncStatus("saved");
+      if (!await controller.sync() || controller.getSnapshot().pending) throw new Error("Sync first");
+      const response = await fetch("/api/challenges", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ baseVersion: controller.getSnapshot().version, startDate: localIsoDate() }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const progress = await response.json() as SyncedProgress;
+      if (!response.ok || !progress.state) throw new Error("New plan failed");
+      controller.acceptAcknowledged(progress);
+      setSelectedDay(nextWorkoutDay(progress.state));
+      setCalendarMonth(monthStart(localIsoDate()));
+      setBlockMessage("Previous plan archived. Your new ongoing calendar is ready.");
       return true;
     } catch {
-      setSyncStatus("error");
+      setBlockMessage("Restart could not be confirmed. Run a sync check before trying again; your device copy is preserved.");
       return false;
-    }
+    } finally { setRestarting(false); }
+  };
+
+  const restoreBackup = async (state: TrackerState) => {
+    if (!progressLoaded || restarting || sync.conflict) return false;
+    setRestarting(true);
+    try {
+      if (!await controller.sync()) return false;
+      downloadBackup(controller.getSnapshot().state, "gym-tracker-before-restore");
+      controller.replace(state);
+      setBlockMessage("Backup restored on this device. Check sync status before closing the app.");
+      await controller.sync(false);
+      return true;
+    } finally { setRestarting(false); }
+  };
+
+  const jumpToNextSet = () => {
+    if (!session.next) return;
+    const row = document.getElementById(`set-${session.next.slot}-${session.next.setIndex}`);
+    row?.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.setTimeout(() => row?.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true }), 250);
   };
 
   const completeWorkout = () => {
@@ -709,6 +567,8 @@ export default function GymTracker({
       completed: true,
       completedAt: nowIso(),
     }));
+    restTimer.pause();
+    warmupTimer.pause();
   };
 
   const reopenWorkout = () => {
@@ -719,25 +579,24 @@ export default function GymTracker({
     }));
   };
 
-  const syncLabel = !user
-    ? "Sign in to sync"
-    : syncStatus === "loading"
-      ? "Loading progress…"
-      : syncStatus === "syncing"
-        ? "Syncing…"
-        : syncStatus === "error"
-          ? "Not synced — retry"
-          : "Saved across devices";
+  const syncLabel = sync.localOnly
+    ? sync.localSaved ? "Saved on this device" : "Device preview"
+    : syncStatus === "loading" ? "Checking saved progress…"
+      : syncStatus === "syncing" ? "Syncing changes…"
+        : syncStatus === "queued" ? sync.localSaved ? "Saved here · waiting to sync" : "Changes waiting to sync"
+          : syncStatus === "error" ? "Sync needs attention"
+            : "Saved across devices";
 
   return (
-    <main className="site-shell">
+    <main className={`site-shell ${focusMode ? "is-focused" : ""}`}>
+      <a className="skip-link" href="#workout-detail">Skip to workout</a>
       <header className="topbar">
-        <a className="brand" href="#top" aria-label="30-Day Gym Tracker home">
+        <a className="brand" href="#top" aria-label="Gym Tracker home">
           <span className="brand-mark" aria-hidden="true">
             <span className="brand-bar" />
             <span className="brand-leaf">⌁</span>
           </span>
-          <span>30-Day Gym Tracker</span>
+          <span>Gym Tracker</span>
         </a>
 
         {user ? (
@@ -754,7 +613,7 @@ export default function GymTracker({
                 className={`sync-line ${syncStatus === "error" ? "has-error" : ""}`}
                 type="button"
                 onClick={() => {
-                  if (syncStatus === "error") void flushQueue();
+                  void controller.sync();
                 }}
               >
                 <span className="sync-dot" aria-hidden="true" />
@@ -771,19 +630,23 @@ export default function GymTracker({
       </header>
 
       <div className="content" id="top">
-        <section className="status-grid" aria-labelledby="hero-title">
+        <div className={`save-status ${syncStatus === "error" || sync.storageError ? "needs-attention" : ""}`} role="status">
+          <span><strong>{syncLabel}</strong>{sync.storageError ? ` · ${sync.storageError}` : sync.message ? ` · ${sync.message}` : sync.localOnly && user ? " · Preview data stays in this browser." : ""}</span>
+          {(syncStatus === "error" || sync.storageError) && <button type="button" onClick={() => void controller.sync()}>Retry save</button>}
+          {sync.conflict && <button type="button" onClick={() => { downloadBackup(controller.getSnapshot().state, "gym-tracker-device-draft"); controller.acceptServerPlan(); }}>Export draft & load server plan</button>}
+        </div>
+        <section className={`status-grid ${started ? "has-started" : ""}`} aria-labelledby="hero-title">
           <article className="card hero-card">
             <div>
-              <p className="eyebrow">Your 30-day reset</p>
+              <p className="eyebrow">Your ongoing training plan</p>
               <h1 id="hero-title">Build momentum, one session at a time.</h1>
               <p className="hero-copy">
-                Three focused workouts a week, automatically spaced around
-                recovery—built for a demanding shift schedule.
+                {tracker.fourDayPlan || !started ? "Four focused workouts each week, with upper and lower sessions and room for recovery." : "Your ongoing training, with a four-day upper/lower plan ready when you are."}
               </p>
             </div>
             <div className="hero-action-row">
-              <button className="primary-button" type="button" onClick={startChallenge}>
-                {started ? "Continue next workout" : "Start 30-day challenge"}
+              <button className="primary-button" disabled={!progressLoaded || restarting} type="button" onClick={startChallenge}>
+                {restarting ? "Starting new plan…" : started ? "Continue next workout" : progressLoaded ? "Start four-day plan" : "Loading your progress…"}
               </button>
               {!user && <span>Sign in once to keep every log synced.</span>}
               {started && tracker.startDate && (
@@ -805,13 +668,13 @@ export default function GymTracker({
             </div>
             <div className="progress-copy">
               <strong>
-                {completedCount} of {SCHEDULED_DAYS.length} workouts
+                {completedThisMonth} of {monthSessionDays.length} this month
               </strong>
               <span>
-                {completedCount === SCHEDULED_DAYS.length
-                  ? "Challenge complete"
+                {monthSessionDays.length > 0 && completedThisMonth === monthSessionDays.length
+                  ? "Month complete"
                   : started
-                    ? `${SCHEDULED_DAYS.length - completedCount} sessions to go`
+                    ? `${completedCount} sessions completed all time`
                     : "Ready when you are"}
               </span>
               <small>{syncLabel}</small>
@@ -819,57 +682,88 @@ export default function GymTracker({
           </article>
         </section>
 
+        <nav className="quick-nav" aria-label="Tracker sections">
+          <a href="#today">Today</a>
+          <a href="#workout-detail">Workout</a>
+          <a href="#calendar">Calendar</a>
+          <a href="#coach">Coach</a>
+          <a href="#progress-dashboard">Progress</a>
+          <a href="#program">Evidence</a>
+          <a href="#wellness">Recovery</a>
+        </nav>
+
+        <SmartToday
+          ready={progressLoaded && !restarting && !sync.conflict}
+          onOpen={openSmartWorkout}
+          onStart={startChallenge}
+          started={started}
+          tracker={tracker}
+        />
+
+        {started && <FourDaySetup tracker={tracker} disabled={restarting || sync.conflict}
+          onActivate={activateFourDays}
+          onSets={(template, slot, count) => mutateTracker(current => changeFourDaySets(current, template, slot, count))}
+          onEffort={rir => mutateTracker(current => current.fourDayPlan ? { ...current, fourDayPlan: { ...current.fourDayPlan, rir, modifiedAt: nowIso() } } : current)} />}
+
         <section className="card calendar-card" id="calendar" aria-labelledby="calendar-title">
           <div className="section-heading calendar-heading">
             <div>
-              <p className="eyebrow">The plan</p>
-              <h2 id="calendar-title">Your 30 days</h2>
+              <p className="eyebrow">Live schedule</p>
+              <h2 id="calendar-title">{monthLabel(calendarMonth)}</h2>
             </div>
-            <div className="legend" aria-label="Calendar legend">
-              <span><i className="legend-workout" /> Workout</span>
-              <span><i className="legend-recovery" /> Recovery</span>
+            <div className="calendar-toolbar">
+              <div className="calendar-navigation" aria-label="Calendar navigation">
+                <button aria-label="Previous month" type="button" onClick={() => setCalendarMonth(monthOffset(calendarMonth, -1))}>‹</button>
+                <button type="button" onClick={() => setCalendarMonth(monthStart(localIsoDate()))}>Today</button>
+                <button aria-label="Next month" type="button" onClick={() => setCalendarMonth(monthOffset(calendarMonth, 1))}>›</button>
+              </div>
+              <div className="legend" aria-label="Calendar legend">
+                <span><i className="legend-workout" /> Workout</span>
+                <span><i className="legend-recovery" /> Recovery</span>
+              </div>
             </div>
           </div>
 
+          <div className="calendar-weekdays" aria-hidden="true">
+            {(["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const).map((day) => <span key={day}>{day}</span>)}
+          </div>
           <div className="calendar-grid">
-            {Array.from({ length: CHALLENGE_LENGTH_DAYS }, (_, index) => index + 1).map((day) => {
-              const sessionDay = calendarWorkouts.get(day);
+            {calendarDates.map((date, index) => {
+              if (!date) return <span className="day-cell calendar-spacer" aria-hidden="true" key={`spacer-${index}`} />;
+              const day = Number(date.slice(-2));
+              const sessionDay = calendarWorkouts.get(date);
               const isWorkout = Boolean(sessionDay);
               const log = sessionDay
                 ? tracker.workouts[String(sessionDay)]
                 : undefined;
               const isDone = Boolean(log?.completed);
-              const actualDate = tracker.startDate
-                ? shortDate(isoDateOffset(tracker.startDate, day - 1))
-                : null;
+              const isToday = date === localIsoDate();
+              const beforeStart = Boolean(tracker.startDate && date < tracker.startDate);
 
               if (!isWorkout) {
                 return (
-                  <div className="day-cell recovery-day" key={day} aria-label={`Day ${day}, recovery`}>
+                  <div className={`day-cell recovery-day ${isToday ? "is-today" : ""} ${beforeStart ? "is-before-start" : ""}`} key={date} aria-label={`${longDate(date)}, ${beforeStart ? "before plan start" : "recovery"}`}>
                     <span className="day-number">{day}</span>
-                    <small>{actualDate ?? "Recovery"}</small>
+                    <small>{isToday ? "Today" : beforeStart ? "—" : "Recovery"}</small>
                   </div>
                 );
               }
 
-              const id = workoutIdForDay(sessionDay!);
-              const sessionIndex =
-                SCHEDULED_DAYS.indexOf(
-                  sessionDay as (typeof SCHEDULED_DAYS)[number],
-                ) + 1;
+              const id = workoutForDay(tracker, sessionDay!).id;
+              const sessionIndex = sessionNumberForKey(tracker, sessionDay!);
               return (
                 <button
-                  className={`day-cell workout-day ${selectedDay === sessionDay ? "is-selected" : ""} ${isDone ? "is-done" : ""}`}
-                  key={day}
+                  className={`day-cell workout-day ${selectedDay === sessionDay ? "is-selected" : ""} ${isDone ? "is-done" : ""} ${isToday ? "is-today" : ""}`}
+                  key={date}
                   type="button"
                   aria-pressed={selectedDay === sessionDay}
-                  aria-label={`Day ${day}, session ${sessionIndex}, workout ${id}${isDone ? ", completed" : ""}`}
+                  aria-label={`${longDate(date)}, session ${sessionIndex}, ${WORKOUTS[id].focus}${isDone ? ", completed" : ""}`}
                   onClick={() => chooseDay(sessionDay!)}
                 >
                   <span className="day-number">{day}</span>
                   <span className="day-check" aria-hidden="true">{isDone ? "✓" : ""}</span>
-                  <strong>{id}</strong>
-                  <small>{actualDate ?? `Session ${sessionIndex}`}</small>
+                  <strong>{WORKOUTS[id].subtitle.split(" · ")[0]}</strong>
+                  <small>{isToday ? "Today" : `Session ${sessionIndex}`}</small>
                 </button>
               );
             })}
@@ -880,10 +774,19 @@ export default function GymTracker({
 
         <section className="workout-layout" id="workout-detail" aria-labelledby="workout-title">
           <article className="card workout-card">
+            <div className="session-toolbar">
+              <div><p className="eyebrow">Session {sessionNumber} · {activeLog.lowSleep ? "Short" : "Full"} workout</p><strong>{activeLog.completed ? "Session complete" : `${session.done} / ${session.total} sets logged`}</strong>{session.next && !activeLog.completed && <span className="session-next">Next: {session.next.name} · set {session.next.setIndex + 1}</span>}</div>
+              <div className="session-tools">
+                <button type="button" aria-pressed={focusMode} onClick={() => setFocusMode(value => !value)}>{focusMode ? "Exit focus" : "Focus view"}</button>
+                {started && !activeLog.completed && session.next && <button type="button" onClick={jumpToNextSet}>Next set ↓</button>}
+              </div>
+              <progress aria-label="Working sets completed" max={session.total} value={session.done} />
+              {(restRunning || restFinished) && <div className="session-rest"><span>{restFinished ? "Rest complete" : `Rest ${formatTimer(restSeconds)}`}</span>{restRunning && <><button type="button" onClick={() => restTimer.addTime(30)}>+30 sec</button><button type="button" onClick={() => restTimer.pause()}>Pause rest</button></>}</div>}
+            </div>
             <div className="workout-header">
               <div>
-                <p className="eyebrow">Session {sessionNumber} of {SCHEDULED_DAYS.length}</p>
-                <h2 id="workout-title">Workout {workoutId}</h2>
+                <p className="eyebrow">Session {sessionNumber}</p>
+                <h2 id="workout-title">{workout.focus}</h2>
                 <p>
                   {activeScheduledDate
                     ? longDate(activeScheduledDate)
@@ -891,21 +794,37 @@ export default function GymTracker({
                 </p>
               </div>
               <div className="workout-meta">
-                <span>30–40 min</span>
+                <span>Workout {workoutId}</span>
+                <span>{isFourDaySession ? "45–60 min · allow extra time if needed" : "30–40 min"}</span>
                 <span>{workout.subtitle}</span>
+                <label className="load-unit-control">
+                  <span>Load unit</span>
+                  <select
+                    aria-label="Load unit for this workout"
+                    disabled={!editable || Object.values(activeLog.sets).flat().some((set) => set.done || set.load || set.reps || set.rir)}
+                    value={activeLog.loadUnit}
+                    onChange={(event) => updateWorkout(selectedDay, (log) => ({ ...log, loadUnit: event.target.value === "kg" ? "kg" : "lb" }))}
+                  >
+                    <option value="lb">lb</option>
+                    <option value="kg">kg</option>
+                  </select>
+                </label>
               </div>
             </div>
+
+            {activeLog.completed && <div className="session-notice"><span>This session is saved. Reopen it to make changes.</span><button className="secondary-button" disabled={!started || sync.conflict} type="button" onClick={reopenWorkout}>Edit completed session</button></div>}
+            {sessionMessage && <p className="session-notice" role="status">{sessionMessage}</p>}
 
             {started && tracker.startDate && activeScheduledDate && (
               <div className="schedule-editor">
                 <div>
                   <strong>Shift changed?</strong>
-                  <span>Move this session while keeping a full recovery day on both sides.</span>
+                  <span>{isFourDaySession ? "Move this and following sessions together. Upper and lower days may be adjacent." : "Move this session while keeping a full recovery day on both sides."}</span>
                 </div>
                 <div className="schedule-controls">
                   <button
                     aria-label="Move workout one day earlier"
-                    disabled={activeLog.completed}
+                    disabled={!editable}
                     type="button"
                     onClick={() => rescheduleWorkout(isoDateOffset(activeScheduledDate, -1))}
                   >
@@ -914,8 +833,7 @@ export default function GymTracker({
                   <label>
                     <span className="sr-only">Workout date</span>
                     <input
-                      disabled={activeLog.completed}
-                      max={isoDateOffset(tracker.startDate, CHALLENGE_LENGTH_DAYS - 1)}
+                      disabled={!editable}
                       min={tracker.startDate}
                       type="date"
                       value={activeScheduledDate}
@@ -924,7 +842,7 @@ export default function GymTracker({
                   </label>
                   <button
                     aria-label="Move workout one day later"
-                    disabled={activeLog.completed}
+                    disabled={!editable}
                     type="button"
                     onClick={() => rescheduleWorkout(isoDateOffset(activeScheduledDate, 1))}
                   >
@@ -938,7 +856,7 @@ export default function GymTracker({
             {!started && (
               <div className="start-notice">
                 <strong>Preview mode</strong>
-                <span>Start the challenge to check off your warm-up and log sets.</span>
+                <span>Start your plan to check off your warm-up and log sets.</span>
               </div>
             )}
 
@@ -946,16 +864,16 @@ export default function GymTracker({
               <div className="readiness-copy">
                 <p className="eyebrow">60-second check-in</p>
                 <h3 id="readiness-title">How ready are you today?</h3>
-                <span>Your answers guide the full, short, or postpone recommendation.</span>
+                <span>Optional planning prompts based on simple cutoffs, not a validated readiness score.</span>
               </div>
               <div className="readiness-fields">
                 <label>
                   <span>Sleep</span>
-                  <div><input disabled={!started} inputMode="decimal" max="12" min="0" placeholder="—" type="number" value={activeLog.readiness.sleepHours} onChange={(event) => updateReadiness("sleepHours", event.target.value)} /><b>hours</b></div>
+                  <div><input disabled={!editable} inputMode="decimal" max="12" min="0" placeholder="—" type="number" value={activeLog.readiness.sleepHours} onChange={(event) => updateReadiness("sleepHours", event.target.value)} /><b>hours</b></div>
                 </label>
                 <label>
                   <span>Energy</span>
-                  <select disabled={!started} value={activeLog.readiness.energy} onChange={(event) => updateReadiness("energy", event.target.value)}>
+                  <select disabled={!editable} value={activeLog.readiness.energy} onChange={(event) => updateReadiness("energy", event.target.value)}>
                     <option value="">Choose</option>
                     <option value="1">1 · drained</option>
                     <option value="2">2 · low</option>
@@ -966,7 +884,7 @@ export default function GymTracker({
                 </label>
                 <label>
                   <span>Soreness</span>
-                  <select disabled={!started} value={activeLog.readiness.soreness} onChange={(event) => updateReadiness("soreness", event.target.value)}>
+                  <select disabled={!editable} value={activeLog.readiness.soreness} onChange={(event) => updateReadiness("soreness", event.target.value)}>
                     <option value="">Choose</option>
                     <option value="1">1 · none</option>
                     <option value="2">2 · mild</option>
@@ -980,9 +898,9 @@ export default function GymTracker({
                 <div>
                   <strong>
                     {shouldPostpone
-                      ? "Best call: postpone today"
+                      ? "Consider more recovery today"
                       : shouldUseShortMode
-                        ? "Recommended: 20-minute mode"
+                        ? "Consider a shorter session"
                         : sleepHours || energy || soreness
                           ? "Full session looks reasonable"
                           : "Complete the check-in for a recommendation"}
@@ -991,12 +909,12 @@ export default function GymTracker({
                     {shouldPostpone
                       ? "Recovery is the productive choice. Move this session to the next valid day above."
                       : shouldUseShortMode
-                        ? "Use two pairs, two sets each, and keep about 3 reps in reserve."
+                        ? "Use the first four exercises, up to two sets each, and about 3 reps in reserve."
                         : "Use the full plan if your warm-up feels normal and pain-free."}
                   </span>
                 </div>
                 {shouldUseShortMode && !activeLog.lowSleep && (
-                  <button disabled={!started} type="button" onClick={() => setLowSleep(true)}>Apply short mode</button>
+                  <button disabled={!editable} type="button" onClick={() => setLowSleep(true)}>Apply short mode</button>
                 )}
               </div>
             </section>
@@ -1005,24 +923,21 @@ export default function GymTracker({
               <div className="warmup-topline">
                 <div>
                   <p className="eyebrow warm">Before every session</p>
-                  <h3 id="warmup-title">Warm-up · 5 minutes</h3>
+                  <h3 id="warmup-title">{isFourDaySession ? "Warm-up · allow 5–8 minutes" : "Warm-up · 5 minutes"}</h3>
                 </div>
                 <div className="timer" aria-label="Warm-up timer">
                   <strong>{formatTimer(warmupSeconds)}</strong>
                   <button
                     type="button"
                     disabled={!started || warmupSeconds === 0}
-                    onClick={() => setWarmupRunning((running) => !running)}
+                    onClick={() => warmupRunning ? warmupTimer.pause() : warmupTimer.start()}
                   >
                     {warmupRunning ? "Pause" : warmupSeconds === 300 ? "Start timer" : "Resume"}
                   </button>
                   <button
                     type="button"
                     disabled={!started || warmupSeconds === 300}
-                    onClick={() => {
-                      setWarmupRunning(false);
-                      setWarmupSeconds(300);
-                    }}
+                    onClick={() => warmupTimer.reset()}
                   >
                     Reset
                   </button>
@@ -1030,12 +945,12 @@ export default function GymTracker({
               </div>
 
               <div className="warmup-list">
-                {WARMUP_ITEMS.map((item) => (
+                {warmupItems.map((item) => (
                   <label className="warmup-item" key={item.id}>
                     <input
                       type="checkbox"
                       checked={Boolean(activeLog.warmup[item.id])}
-                      disabled={!started}
+                      disabled={!editable}
                       onChange={() => toggleWarmup(item.id)}
                     />
                     <span className="control-check" aria-hidden="true" />
@@ -1048,7 +963,7 @@ export default function GymTracker({
               </div>
 
               <div className="warmup-form-grid" aria-label="Warm-up movement guides">
-                {WARMUP_ITEMS.map((item) => {
+                {(!isFourDaySession ? WARMUP_ITEMS : []).map((item) => {
                   const guide = WARMUP_GUIDES[item.id];
                   if (!guide) return null;
                   return (
@@ -1067,19 +982,19 @@ export default function GymTracker({
               <div>
                 <strong>Short-sleep shift?</strong>
                 <span>
-                  Use the 20-minute version: pairs 1 and 2, two sets each,
-                  keeping 3 reps in reserve.
+                  Use the first four exercises with up to two sets each,
+                  keeping about 3 reps in reserve. Keep normal rest periods.
                 </span>
               </div>
               <label className="switch-control">
                 <input
                   type="checkbox"
                   checked={activeLog.lowSleep}
-                  disabled={!started}
+                  disabled={!editable}
                   onChange={toggleLowSleep}
                 />
                 <span aria-hidden="true" />
-                <b>{activeLog.lowSleep ? "20-min mode on" : "Full session"}</b>
+                <b>{activeLog.lowSleep ? "Short mode on" : "Full session"}</b>
               </label>
             </div>
 
@@ -1094,22 +1009,17 @@ export default function GymTracker({
               <div className="rest-timer-copy">
                 <p className="eyebrow">Automatic between sets</p>
                 <h3 id="rest-timer-title">{restFinished ? "Rest complete—next clean set." : "Rest timer"}</h3>
-                <span>It starts when you check off a set: 90 seconds for the first two pairs, 60 seconds for accessories.</span>
+                <span>It starts when you finish a set, using the exercise’s rest target. Add time when you need it.</span>
               </div>
               <div className="rest-timer-actions">
                 <div className="rest-presets" aria-label="Rest duration">
-                  {[60, 75, 90].map((duration) => (
+                  {[90, 120, 180].map((duration) => (
                     <button
                       aria-pressed={restDuration === duration}
                       className={restDuration === duration ? "is-active" : ""}
                       key={duration}
                       type="button"
-                      onClick={() => {
-                        setRestDuration(duration);
-                        setRestSeconds(duration);
-                        setRestFinished(false);
-                        setRestRunning(false);
-                      }}
+                      onClick={() => restTimer.reset(duration)}
                     >
                       {duration}s
                     </button>
@@ -1117,24 +1027,16 @@ export default function GymTracker({
                 </div>
                 <div>
                   <button
-                    disabled={!started}
+                    disabled={!editable}
                     type="button"
-                    onClick={() => {
-                      if (restSeconds === 0) setRestSeconds(restDuration);
-                      setRestFinished(false);
-                      setRestRunning((running) => !running);
-                    }}
+                    onClick={() => restRunning ? restTimer.pause() : restTimer.start()}
                   >
                     {restRunning ? "Pause" : "Start"}
                   </button>
                   <button
                     disabled={!started || (restSeconds === restDuration && !restRunning)}
                     type="button"
-                    onClick={() => {
-                      setRestRunning(false);
-                      setRestFinished(false);
-                      setRestSeconds(restDuration);
-                    }}
+                    onClick={() => restTimer.reset()}
                   >
                     Reset
                   </button>
@@ -1163,23 +1065,20 @@ export default function GymTracker({
                       <h3>{pair.title}</h3>
                     </div>
                     <small>
-                      {workingSetCount(selectedDay, pairIndex * 2, activeLog.lowSleep)} rounds · rest 60–90 sec
+                      {isFourDaySession ? "Straight sets · complete each exercise in order" : "Alternate exercises · keep your rest periods"}
                     </small>
                   </div>
 
                   <div className="exercise-stack">
                     {pair.exercises.map((exercise, itemIndex) => {
-                      const exerciseIndex = pairIndex * 2 + itemIndex;
-                      const setCount = workingSetCount(
-                        selectedDay,
-                        exerciseIndex,
-                        activeLog.lowSleep,
-                      );
+                      const exerciseIndex = visiblePairs.slice(0, pairIndex).reduce((sum, group) => sum + group.exercises.length, 0) + itemIndex;
+                      const prescription = exercisePrescriptionFor(workoutState, selectedDay, exercise.id, activeLog);
+                      const setCount = prescription.sets;
                       const exerciseSets = activeLog.sets[exercise.id] ?? [];
                       const effectiveId =
                         activeLog.substitutions[exercise.id] ?? exercise.id;
                       const displayedExercise =
-                        EXERCISE_LIBRARY[effectiveId] ?? exercise;
+                        effectiveId === exercise.id ? exercise : EXERCISE_LIBRARY[effectiveId] ?? exercise;
                       const guide = EXERCISE_GUIDES[effectiveId];
                       const previous = previousPerformance(
                         tracker,
@@ -1190,6 +1089,8 @@ export default function GymTracker({
                       const recommendation = loadRecommendation(
                         effectiveId,
                         previous,
+                        activeLog.loadUnit,
+                        prescription,
                       );
                       const substitutionOptions =
                         EXERCISE_SUBSTITUTIONS[exercise.id] ?? [];
@@ -1204,16 +1105,16 @@ export default function GymTracker({
                               <span className="exercise-number">{exerciseIndex + 1}</span>
                               <div>
                                 <h4>{displayedExercise.name}</h4>
-                                <strong>{displayedExercise.reps}</strong>
+                                <strong>{prescription.reps} · {setCount} sets{!/sec/i.test(prescription.reps) && ` · about ${prescription.rir} RIR`}</strong>
                               </div>
                             </div>
-                            <p>{displayedExercise.cue}</p>
+                            <p>{displayedExercise.cue} Rest {prescription.restSeconds / 60} min between sets.</p>
                             {substitutionOptions.length > 0 ? (
                               <label className="substitution-control">
                                 <span>Equipment occupied?</span>
                                 <select
                                   aria-label={`Choose an alternative for ${exercise.name}`}
-                                  disabled={!started || hasLoggedSet}
+                                  disabled={!editable || hasLoggedSet}
                                   value={effectiveId}
                                   onChange={(event) => setSubstitution(exercise.id, event.target.value)}
                                 >
@@ -1238,7 +1139,7 @@ export default function GymTracker({
                                 <div className="previous-sets">
                                   {previous.sets.map((set, index) => (
                                     <b key={`${set.load}-${set.reps}-${index}`}>
-                                      {set.load ? `${set.load} lb · ` : ""}{set.reps} {/(sec)/i.test(displayedExercise.reps) ? "sec" : "reps"}{set.rir ? ` · ${set.rir} RIR` : ""}
+                                      {set.load ? `${formatLoad(convertLoad(Number(set.load), previous.loadUnit, activeLog.loadUnit))} ${activeLog.loadUnit} · ` : ""}{set.reps} {/(sec)/i.test(displayedExercise.reps) ? "sec" : "reps"}{set.rir ? ` · ${set.rir} RIR` : ""}
                                     </b>
                                   ))}
                                 </div>
@@ -1253,14 +1154,15 @@ export default function GymTracker({
                           </div>
 
                           <div className="set-table" role="group" aria-label={`${displayedExercise.name} set log`}>
+                            <div className="set-log-help"><span>Enter { /sec/i.test(displayedExercise.reps) ? "seconds" : "reps" } before checking Done. Load is optional for bodyweight sets.</span>{previous && <button type="button" disabled={!editable} onClick={() => { updateWorkout(selectedDay, log => copyPreviousSets(tracker, selectedDay, log, exercise.id, setCount)); setSessionMessage(`Previous values added to empty rows for ${displayedExercise.name}. Log today’s effort before checking Done.`); }}>Use last values</button>}</div>
                             <div className="set-head" aria-hidden="true">
-                              <span>Set</span><span>Load</span><span>Reps</span><span>RIR</span><span>Done</span>
+                              <span>Set</span><span>{activeLog.loadUnit}</span><span>{/sec/i.test(displayedExercise.reps) ? "Sec" : "Reps"}</span><span>RIR</span><span>Done</span>
                             </div>
                             {Array.from({ length: setCount }, (_, setIndex) => {
                               const set = exerciseSets[setIndex] ?? blankSet();
                               const label = `${displayedExercise.name}, set ${setIndex + 1}`;
                               return (
-                                <div className="set-row" key={setIndex}>
+                                <div className={`set-row ${set.done ? "is-done" : ""}`} id={`set-${exercise.id}-${setIndex}`} key={setIndex}>
                                   <strong>{setIndex + 1}</strong>
                                   <label>
                                     <span className="sr-only">{label}, weight</span>
@@ -1268,9 +1170,10 @@ export default function GymTracker({
                                       type="text"
                                       inputMode="decimal"
                                       maxLength={12}
-                                      placeholder="lb"
+                                      placeholder={activeLog.loadUnit}
+                                      aria-invalid={Boolean(set.load && !validSet({ ...set, reps: "1" }))}
                                       value={set.load}
-                                      disabled={!started}
+                                      disabled={!editable}
                                       onChange={(event) => updateSet(exercise.id, setIndex, { load: event.target.value })}
                                     />
                                   </label>
@@ -1280,9 +1183,10 @@ export default function GymTracker({
                                       type="text"
                                       inputMode="numeric"
                                       maxLength={12}
-                                      placeholder="reps"
+                                      placeholder={/sec/i.test(displayedExercise.reps) ? "sec" : "reps"}
+                                      aria-invalid={Boolean(set.reps && !validSet({ ...set, load: "" }))}
                                       value={set.reps}
-                                      disabled={!started}
+                                      disabled={!editable}
                                       onChange={(event) => updateSet(exercise.id, setIndex, { reps: event.target.value })}
                                     />
                                   </label>
@@ -1290,7 +1194,7 @@ export default function GymTracker({
                                     <span className="sr-only">{label}, repetitions in reserve</span>
                                     <select
                                       value={set.rir}
-                                      disabled={!started}
+                                      disabled={!editable}
                                       onChange={(event) => updateSet(exercise.id, setIndex, { rir: event.target.value })}
                                     >
                                       <option value="">—</option>
@@ -1306,13 +1210,13 @@ export default function GymTracker({
                                     <input
                                       type="checkbox"
                                       checked={set.done}
-                                      disabled={!started}
+                                      disabled={!editable || (!set.done && !validSet(set))}
                                       onChange={() =>
                                         updateSet(
                                           exercise.id,
                                           setIndex,
                                           { done: !set.done },
-                                          pairIndex < 2 ? 90 : 60,
+                                          prescription.restSeconds,
                                         )
                                       }
                                     />
@@ -1338,7 +1242,7 @@ export default function GymTracker({
                 rows={3}
                 maxLength={500}
                 value={activeLog.note}
-                disabled={!started}
+                disabled={!editable}
                 placeholder="Energy, technique, pain-free adjustments, or what to progress next time…"
                 onChange={(event) =>
                   updateWorkout(selectedDay, (log) => ({
@@ -1358,17 +1262,17 @@ export default function GymTracker({
                       ? "Everything is checked—nice work."
                       : "Complete the warm-up and working sets first."}
                 </strong>
-                <span>Clean repetitions matter more than rushing the checkbox.</span>
+                <span>{activeLog.completed ? "Your log is ready for the next session." : `${session.warmupDone} of ${WARMUP_ITEMS.length} warm-up steps · ${session.done} of ${session.total} working sets`}</span>
               </div>
               {activeLog.completed ? (
-                <button className="secondary-button" type="button" onClick={reopenWorkout}>
+                <button className="secondary-button" disabled={!started || sync.conflict} type="button" onClick={reopenWorkout}>
                   Reopen workout
                 </button>
               ) : (
                 <button
                   className="primary-button"
                   type="button"
-                  disabled={!started || !readyToComplete}
+                  disabled={!started || !readyToComplete || sync.conflict}
                   onClick={completeWorkout}
                 >
                   Complete workout
@@ -1384,8 +1288,8 @@ export default function GymTracker({
                 <p className="eyebrow">Recovery matters</p>
                 <h2>Protect the habit.</h2>
                 <p>
-                  After a short-sleep shift, choose the 20-minute version and
-                  keep three repetitions in reserve. Postpone if you feel
+                  After a short-sleep shift, consider a shorter session and
+                  keep about three repetitions in reserve. Postpone if you feel
                   unwell or unusually exhausted.
                 </p>
               </div>
@@ -1395,18 +1299,20 @@ export default function GymTracker({
               <p className="eyebrow">Progression rule</p>
               <h2>Earn the next weight.</h2>
               <ol>
-                <li>Reach the top of the rep range on every set.</li>
-                <li>Keep clean technique and 1–2 reps in reserve.</li>
-                <li>Then add the smallest available weight.</li>
+                <li>Reach the top of the rep range on every prescribed set.</li>
+                <li>Keep clean technique and the prescribed reps in reserve.</li>
+                <li>Repeat this in two comparable sessions, then try the smallest practical increase.</li>
               </ol>
               <p>
-                During the first six workouts, use two working sets. From
-                workout seven onward, the first four exercises automatically
-                expand to three sets.
+                {isFourDaySession ? "Volume stays at your chosen dose. Adjust future sets only when technique, performance, and recovery support it." : "Legacy sessions keep their original set counts. Your four-day transition preserves these records."}
               </p>
             </article>
           </aside>
         </section>
+
+        <CoachPanel ready={progressLoaded} signedIn={Boolean(user)} tracker={tracker} />
+
+        <ProgramIntelligence tracker={tracker} />
 
         <WellnessPanel
           onMetricChange={updateDailyMetric}
@@ -1416,9 +1322,14 @@ export default function GymTracker({
         />
 
         <AppTools
+          blockMessage={blockMessage}
           lastSyncedAt={lastSyncedAt}
           onReset={resetChallenge}
-          onSyncCheck={runSyncCheck}
+          onSyncCheck={() => controller.sync()}
+          onRestore={restoreBackup}
+          localOnly={sync.localOnly}
+          canRestore={progressLoaded && Boolean(user) && !sync.conflict}
+          restarting={restarting}
           started={started}
           syncStatus={syncStatus}
           syncVersion={syncVersion}
@@ -1428,7 +1339,7 @@ export default function GymTracker({
       </div>
 
       <div className="sr-only" aria-live="polite">
-        {completedCount} of {SCHEDULED_DAYS.length} workouts completed. {syncLabel}
+        {completedCount} workouts completed all time. {completedThisMonth} of {monthSessionDays.length} completed in {monthLabel(calendarMonth)}. {syncLabel}
       </div>
     </main>
   );

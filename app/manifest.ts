@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     background_color: "#f4ebdd",
     description:
-      "A shift-friendly 30-day strength, recovery, and nutrition tracker.",
+      "A shift-friendly ongoing strength, recovery, and nutrition tracker.",
     display: "standalone",
     icons: [
       {
@@ -26,7 +26,7 @@ export default function manifest(): MetadataRoute.Manifest {
       },
     ],
     id: "/",
-    name: "30-Day Gym Tracker",
+    name: "Gym Tracker",
     orientation: "portrait-primary",
     short_name: "Gym Tracker",
     start_url: "/",
