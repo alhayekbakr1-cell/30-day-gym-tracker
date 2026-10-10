@@ -31,3 +31,13 @@ test('worker activation touches only its shell caches and never deletes recovery
   const w = worker(); w.stores.set('gym-shell-old', new Map()); w.stores.set('unrelated-cache', new Map()); await w.run('activate'); assert.equal(w.stores.has('gym-shell-old'), false); assert.equal(w.stores.has('unrelated-cache'), true);
   assert.doesNotMatch(source, /self\.skipWaiting\(|clients\.claim\(|localStorage\.|indexedDB\./);
 });
+
+test('cache versions change when a stable-name static asset changes', async t => {
+  const { mkdtemp, mkdir, writeFile, rm } = await import('node:fs/promises'); const { tmpdir } = await import('node:os'); const { spawnSync } = await import('node:child_process');
+  const path = await import('node:path'); const directory = await mkdtemp(path.join(tmpdir(), 'gym-shell-test-')); t.after(() => rm(directory, { recursive: true, force: true }));
+  await mkdir(path.join(directory, 'dist/client/assets'), { recursive: true }); await mkdir(path.join(directory, 'scripts'));
+  await writeFile(path.join(directory, 'scripts/service-worker-template.js'), source); await writeFile(path.join(directory, 'dist/client/assets/main.js'), 'first');
+  const generate = async () => { const result = spawnSync(process.execPath, [new URL('../scripts/prepare-offline.mjs', import.meta.url).pathname], { cwd: directory, encoding: 'utf8' }); assert.equal(result.status, 0, result.stderr); return await readFile(path.join(directory, 'dist/client/service-worker.js'), 'utf8'); };
+  const first = await generate(); assert.equal(await generate(), first);
+  await writeFile(path.join(directory, 'dist/client/assets/main.js'), 'changed'); assert.notEqual(await generate(), first);
+});

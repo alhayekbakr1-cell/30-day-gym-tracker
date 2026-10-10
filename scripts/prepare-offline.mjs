@@ -14,7 +14,9 @@ async function walk(directory, prefix = "") {
 await walk(root);
 assets.sort();
 const template = await readFile("scripts/service-worker-template.js", "utf8");
-const version = createHash("sha256").update(template).update(assets.join("\n")).digest("hex").slice(0, 16);
+const digest = createHash("sha256").update(template);
+for (const asset of assets) digest.update(asset).update(await readFile(path.join(root, asset.slice(1))));
+const version = digest.digest("hex").slice(0, 16);
 const worker = template.replace('/*OFFLINE_POLICY*/ { version: "test", assets: [] }', JSON.stringify({ version, assets }));
 await writeFile(path.join(root, "service-worker.js"), worker);
 console.log(`Prepared versioned offline shell with ${assets.length} safe static assets.`);
