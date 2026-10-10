@@ -1,3 +1,4 @@
+import { availableExercise } from "./equipment-logic";
 import type { SetLog, TrackerState, WorkoutLog } from "./tracker-types";
 import { convertLoad, formatLoad, numeric, previousPerformance, workoutForDay } from "./tracker-logic";
 import { EXERCISE_LIBRARY, WARMUP_ITEMS, workingSetsForDay } from "./workout-data";
@@ -23,7 +24,10 @@ export function hydratedWorkoutLog(state: TrackerState, day: number): WorkoutLog
     substitutions: {}, warmup: Object.fromEntries(WARMUP_ITEMS.map(item => [item.id, false])), workoutId: workout.id,
     ...(isFourDayKey(day) ? { prescription: prescriptionForSession(state, day) } : {}),
   };
-  if (!saved) return base;
+  if (!saved) {
+    if (workout.id === "UB" && state.equipment.futureUpperBFlat && availableExercise("flat-db-bench", state.equipment)) base.substitutions["machine-press"] = "flat-db-bench";
+    return base;
+  }
   return { ...base, ...saved, readiness: { ...base.readiness, ...saved.readiness },
     sets: { ...base.sets, ...saved.sets }, warmup: { ...base.warmup, ...saved.warmup }, substitutions: { ...saved.substitutions } };
 }

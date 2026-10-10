@@ -1,3 +1,4 @@
+import { defaultEquipment } from "./equipment-logic";
 import type { DailyMetric, ProfileSettings, SetLog, TrackerState, WorkoutLog } from "./tracker-types";
 import { canonicalExerciseId, EXERCISE_LIBRARY, isTrainingDayNumber, scheduledTrainingDays, WORKOUTS, workoutIdForDay, workingSetsForDay } from "./workout-data";
 import { FOUR_DAY_EXERCISES, FOUR_DAY_KEY_START, FOUR_DAY_OFFSETS, FOUR_DAY_SESSION_LIMIT, fourDayWorkoutId, initialFourDaySets, isFourDayKey, type FourDayWorkoutId, type ExercisePrescription } from "./four-day-data";
@@ -7,9 +8,9 @@ export const EMPTY_PROFILE: ProfileSettings = {
   loadUnit: "lb", modifiedAt: ZERO_DATE, proteinGoal: "", stepGoal: "7000", weightUnit: "lb",
 };
 export const EMPTY_STATE: TrackerState = {
-  fourDayPlan: null,
+  fourDayPlan: null, equipment: defaultEquipment(),
   blockId: null, dailyMetrics: {}, programVersion: 3, profile: EMPTY_PROFILE, schedule: {},
-  scheduleModifiedAt: ZERO_DATE, schemaVersion: 6, startDate: null, workouts: {},
+  scheduleModifiedAt: ZERO_DATE, schemaVersion: 7, startDate: null, workouts: {},
 };
 
 export function localIsoDate(date = new Date()) {
@@ -52,8 +53,8 @@ export function normalizeTrackerState(value: Partial<TrackerState> | null | unde
     date, { ...metric, weightUnit: metric.weightUnit ?? profile.weightUnit },
   ]));
   return {
-    blockId: value.blockId ?? startDate, dailyMetrics, programVersion: 3, profile, workouts, startDate, schemaVersion: 6,
-    fourDayPlan: value.fourDayPlan ?? null,
+    blockId: value.blockId ?? startDate, dailyMetrics, programVersion: 3, profile, workouts, startDate, schemaVersion: 7,
+    fourDayPlan: value.fourDayPlan ?? null, equipment: value.equipment ?? defaultEquipment(),
     schedule: value.schedule && Object.keys(value.schedule).length > 0 ? value.schedule : defaultSchedule(),
     scheduleModifiedAt: value.scheduleModifiedAt ?? ZERO_DATE,
   };
@@ -152,7 +153,7 @@ export function suggestedFourDayStart(state: TrackerState, today = localIsoDate(
 export function activateFourDayPlan(state: TrackerState, startsOn: string, id: string, now = new Date().toISOString(), today = localIsoDate()): TrackerState {
   if (state.fourDayPlan) throw new Error("Your four-day plan is already active.");
   if (!state.startDate || !isIsoDate(startsOn) || startsOn < earliestFourDayStart(state, today)) throw new Error("Choose a date at least two days after your latest saved workout, and no earlier than today.");
-  return { ...state, schemaVersion: 6, fourDayPlan: { id, version: 1, startsOn, modifiedAt: now, sets: initialFourDaySets(), rir: 3, shifts: {} } };
+  return { ...state, schemaVersion: 7, fourDayPlan: { id, version: 1, startsOn, modifiedAt: now, sets: initialFourDaySets(), rir: 3, shifts: {} } };
 }
 export function changeFourDaySets(state: TrackerState, template: FourDayWorkoutId, slot: string, count: number, now = new Date().toISOString()): TrackerState {
   const plan = state.fourDayPlan;
@@ -341,9 +342,10 @@ export function mergeTrackerStates(remoteValue: TrackerState | null, localValue:
     fourDayPlan: same(local.fourDayPlan, base?.fourDayPlan) ? remote.fourDayPlan
       : same(remote.fourDayPlan, base?.fourDayPlan) ? local.fourDayPlan
         : Date.parse(local.fourDayPlan?.modifiedAt ?? ZERO_DATE) > Date.parse(remote.fourDayPlan?.modifiedAt ?? ZERO_DATE) ? local.fourDayPlan : remote.fourDayPlan,
+    equipment: base ? mergeFields(remote.equipment, local.equipment, base.equipment, Date.parse(local.equipment.modifiedAt) > Date.parse(remote.equipment.modifiedAt)) : Date.parse(local.equipment.modifiedAt) > Date.parse(remote.equipment.modifiedAt) ? local.equipment : remote.equipment,
     profile: base ? mergeFields(remote.profile, local.profile, base.profile, localProfileIsNewer) : localProfileIsNewer ? local.profile : remote.profile,
     schedule: base ? mergeFields(remote.schedule, local.schedule, base.schedule, localScheduleIsNewer) : localScheduleIsNewer ? local.schedule : remote.schedule,
     scheduleModifiedAt: localScheduleIsNewer ? local.scheduleModifiedAt : remote.scheduleModifiedAt,
-    schemaVersion: 6, startDate: remote.startDate, workouts,
+    schemaVersion: 7, startDate: remote.startDate, workouts,
   };
 }

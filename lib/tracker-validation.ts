@@ -1,3 +1,4 @@
+import { cleanEquipment, defaultEquipment } from "../app/equipment-logic";
 import type {
   DailyMetric,
   ProfileSettings,
@@ -9,15 +10,11 @@ import type {
 import type { WorkoutId } from "../app/workout-data";
 import { dayDifference, isIsoDate, scheduledDate } from "../app/tracker-logic";
 import { validSet } from "../app/session-logic";
-import { isTrainingDayNumber, WARMUP_ITEMS, WORKOUTS, workoutIdForDay } from "../app/workout-data";
+import { isTrainingDayNumber, EXERCISE_LIBRARY, WARMUP_ITEMS, WORKOUTS, workoutIdForDay } from "../app/workout-data";
 import { FOUR_DAY_EXERCISES, FOUR_DAY_ROTATION, FOUR_DAY_KEY_START, fourDayWorkoutId, isFourDayKey, type FourDayPlan, type FourDaySets, type SessionPrescription } from "../app/four-day-data";
 
 const allowedWarmups = new Set<string>(WARMUP_ITEMS.map((item) => item.id));
-const allowedExercises = new Set(
-  Object.values(WORKOUTS).flatMap((workout) =>
-    workout.pairs.flatMap((pair) => pair.exercises.map((exercise) => exercise.id)),
-  ),
-);
+const allowedExercises = new Set(Object.keys(EXERCISE_LIBRARY));
 const allowedWorkoutIds = new Set(Object.keys(WORKOUTS));
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -168,7 +165,7 @@ function cleanPrescription(value: unknown, key: number, plan: FourDayPlan): Sess
 
 export function sanitizeTrackerState(value: unknown): TrackerState | null {
   if (!isRecord(value)) return null;
-  if (typeof value.schemaVersion === "number" && value.schemaVersion > 6) return null;
+  if (typeof value.schemaVersion === "number" && value.schemaVersion > 7) return null;
   const programVersion: 1 | 2 | 3 = value.programVersion === 1 ? 1 : value.programVersion === 2 ? 2 : 3;
 
   const startDate = value.startDate === null ? null : cleanIsoDate(value.startDate);
@@ -176,7 +173,7 @@ export function sanitizeTrackerState(value: unknown): TrackerState | null {
     return null;
   }
   const fourDayPlan = value.fourDayPlan == null ? null : cleanFourDayPlan(value.fourDayPlan);
-  if (value.fourDayPlan != null && (!fourDayPlan || value.schemaVersion !== 6 || !startDate || fourDayPlan.startsOn < startDate)) return null;
+  if (value.fourDayPlan != null && (!fourDayPlan || (value.schemaVersion !== 6 && value.schemaVersion !== 7) || !startDate || fourDayPlan.startsOn < startDate)) return null;
 
   const source = isRecord(value.workouts) ? value.workouts : {};
   const workouts: Record<string, WorkoutLog> = {};
@@ -210,7 +207,10 @@ export function sanitizeTrackerState(value: unknown): TrackerState | null {
     if (cleanIsoDate(date)) dailyMetrics[date] = cleanMetric(metric, profile.weightUnit);
   }
 
+  const equipment = value.equipment === undefined && value.schemaVersion !== 7 ? defaultEquipment() : cleanEquipment(value.equipment, allowedExercises);
+  if (!equipment) return null;
   const state: TrackerState = {
+    equipment,
     fourDayPlan,
     blockId: typeof value.blockId === "string" ? cleanText(value.blockId, 80) : startDate,
     dailyMetrics,
@@ -218,7 +218,7 @@ export function sanitizeTrackerState(value: unknown): TrackerState | null {
     profile,
     schedule,
     scheduleModifiedAt: cleanTimestamp(value.scheduleModifiedAt),
-    schemaVersion: 6,
+    schemaVersion: 7,
     startDate,
     workouts,
   };

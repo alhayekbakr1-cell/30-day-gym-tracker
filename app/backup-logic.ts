@@ -17,8 +17,8 @@ export function parseBackup(text: string) {
     if (parsed.version !== 1) throw new Error("This backup format needs a newer version of Gym Tracker.");
     parsed = parsed.state;
   }
-  if (!record(parsed) || (parsed.schemaVersion !== 5 && parsed.schemaVersion !== 6) || !record(parsed.workouts) || !record(parsed.dailyMetrics)
-    || !record(parsed.profile) || !record(parsed.schedule)) throw new Error("This is not a supported Gym Tracker backup (schema 5 or 6).");
+  if (!record(parsed) || (parsed.schemaVersion !== 5 && parsed.schemaVersion !== 6 && parsed.schemaVersion !== 7) || !record(parsed.workouts) || !record(parsed.dailyMetrics)
+    || !record(parsed.profile) || !record(parsed.schedule)) throw new Error("This is not a supported Gym Tracker backup (schema 5, 6 or 7).");
   const state = sanitizeTrackerState(parsed);
   if (!state) throw new Error("The backup contains an invalid plan date or unsupported data.");
   // Reject records that would be silently dropped or shortened during server validation.

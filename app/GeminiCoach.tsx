@@ -24,7 +24,7 @@ export default function GeminiCoach({ email, controller, enabled }: { email: str
   }
   if (!email) return <section className="card gemini-coach"><h2>Gemini coach</h2><p>Sign in with ChatGPT online to request a private training review.</p></section>;
   return <section className="card gemini-coach" aria-labelledby="gemini-title"><p className="eyebrow">Personal training review</p><h2 id="gemini-title">Gemini coach</h2>
-    <p>Request a review of your synced training. Clicking sends your training summary, logged goals, and up to 60 recent exercise exposures to Google Gemini. Names, account email, workout notes, and the API key are not included in that snapshot. Advice does not edit your plan.</p>
+    <p>Request a review of your synced training. Clicking sends your training summary, logged goals, configured gym inventory/load choices, and up to 60 recent exercise exposures to Google Gemini. Names, account email, workout/setup notes, and the API key are not included in that snapshot. Advice does not edit your plan.</p>
     <label htmlFor="coach-question">What would you like to understand?</label><textarea id="coach-question" value={question} maxLength={1500} rows={3} onChange={event => setQuestion(event.target.value)} disabled={busy || !enabled}/>
     <button className="primary-button" type="button" disabled={!enabled || !email || busy || !question.trim()} onClick={() => void review()}>{busy ? "Reviewing your logs…" : "Send training snapshot & review"}</button>
     {!enabled && <p>Sign in online and use the editing tab to request a review.</p>}

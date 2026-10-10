@@ -246,6 +246,7 @@ export default function AppTools({
             {importState && <div className="reset-confirm" role="region" aria-label="Review backup before restoring">
               <strong>Review this backup</strong>
               <p>{Object.keys(importState.workouts).length} logged sessions · {Object.keys(importState.dailyMetrics).length} daily entries · Plan started {importState.startDate ?? "not yet"}.</p>
+              <p>Equipment profile: {Object.values(importState.equipment.available).filter(Boolean).length} available items · {Object.keys(importState.equipment.exerciseNotes).length} exercise reminders · {Object.keys(importState.equipment.notes).length} equipment reminders · future Upper B flat-bench preference {importState.equipment.futureUpperBFlat ? "enabled" : "disabled"}.</p>
               <p>Restoring replaces the current plan and syncs it to your account. Export your current records and confirm the download is saved before continuing.</p>
               <button type="button" className="secondary-button" onClick={() => downloadBackup(tracker, "gym-tracker-before-restore")}>Save current backup</button>
               <label className="restore-ack"><input type="checkbox" checked={backupAcknowledged} onChange={event => setBackupAcknowledged(event.target.checked)} /> I saved a copy of my current records.</label>

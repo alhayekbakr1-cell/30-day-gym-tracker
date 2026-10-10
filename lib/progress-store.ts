@@ -107,7 +107,7 @@ export async function writeProgress(
   userEmail: string,
   state: TrackerState,
   baseVersion: number,
-  inputSchemaVersion = 6,
+  inputSchemaVersion = 7,
 ): Promise<{ conflict: boolean; progress: SyncedProgress }> {
   const db = await database();
   const updatedAt = Date.now();
@@ -132,9 +132,9 @@ export async function writeProgress(
     const nextVersion = baseVersion + 1;
     const result = await db
       .prepare(
-        "UPDATE gym_progress SET state_json = ?, version = ?, updated_at = ? WHERE user_email = ? AND version = ? AND (? >= 6 OR json_extract(state_json, '$.fourDayPlan') IS NULL)",
+        "UPDATE gym_progress SET state_json = ?, version = ?, updated_at = ? WHERE user_email = ? AND version = ? AND (? >= 6 OR json_extract(state_json, '$.fourDayPlan') IS NULL) AND (? >= 7 OR json_extract(state_json, '$.equipment') IS NULL)",
       )
-      .bind(stateJson, nextVersion, updatedAt, userEmail, baseVersion, inputSchemaVersion)
+      .bind(stateJson, nextVersion, updatedAt, userEmail, baseVersion, inputSchemaVersion, inputSchemaVersion)
       .run();
 
     if (Number(result.meta.changes ?? 0) > 0) {

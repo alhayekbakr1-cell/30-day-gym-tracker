@@ -449,6 +449,13 @@ export const EXERCISE_LIBRARY: Record<string, Exercise> = Object.fromEntries(
   ),
 );
 
+Object.assign(EXERCISE_LIBRARY, {
+  "assisted-pullup": { id: "assisted-pullup", name: "Assisted pull-up", reps: "6–10 reps", cue: "Use comfortable assistance and a controlled range; stop if the setup is unsuitable." },
+  "smith-squat": { id: "smith-squat", name: "Smith squat", reps: "8–12 reps", cue: "Use a comfortable stance and range with the machine safety stops set." },
+  "leg-extension": { id: "leg-extension", name: "Leg extension", reps: "10–15 reps", cue: "Use a comfortable range and control both directions." },
+  "leg-press-calf": { id: "leg-press-calf", name: "Leg-press calf raise", reps: "10–20 reps", cue: "Keep the knees softly extended and use a controlled, comfortable range." },
+});
+
 export const EXERCISE_SUBSTITUTIONS: Record<string, readonly string[]> = {
   "leg-press": ["split-squat"],
   "flat-db-bench": ["machine-press", "incline-db-bench"],

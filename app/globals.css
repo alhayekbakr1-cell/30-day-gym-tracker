@@ -3626,3 +3626,18 @@ input:disabled + .control-check {
 .coach-answer p { white-space: pre-wrap; line-height: 1.7; }
 .device-drafts div { display: flex; flex-wrap: wrap; gap: .8rem; padding: .6rem 0; }
 .history-filters select:focus-visible,.gemini-coach textarea:focus-visible,.exercise-history button:focus-visible { outline: 3px solid #245e4d; outline-offset: 3px; }
+/* Secondary tools stay closed until requested. */
+details.card > summary { cursor:pointer; font-weight:650; padding:.3rem; }
+.exercise-options { margin:.6rem 0; color:var(--muted); font-size:.88rem; }
+.exercise-options summary { cursor:pointer; }
+.exercise-options label,.equipment-item label { display:grid; gap:.4rem; margin:.8rem 0; }
+.exercise-options textarea,.equipment-item input[type=text],.equipment-item textarea { width:100%; max-width:100%; padding:.7rem; border:1px solid var(--border); border-radius:8px; font:inherit; }
+.equipment-choice { display:flex!important; align-items:flex-start; gap:.7rem; }
+.equipment-choice input { margin-top:.2rem; flex-shrink:0; }
+.equipment-item { padding:.8rem 0; border-bottom:1px solid var(--border); }
+.equipment-item summary { cursor:pointer; overflow-wrap:anywhere; }
+.equipment-warning { padding:.6rem; background:#fff6df; border-radius:8px; font-size:.88rem; }
+.history-link { border:0; background:transparent; color:var(--forest-900); text-decoration:underline; cursor:pointer; padding:.4rem 0; }
+.exercise-options select { max-width:100%; min-width:0; }
+details summary:focus-visible,.history-link:focus-visible { outline:3px solid #245e4d; outline-offset:3px; }
+.equipment-settings p { line-height:1.6; }

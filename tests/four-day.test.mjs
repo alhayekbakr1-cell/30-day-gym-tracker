@@ -52,7 +52,7 @@ test("schema-5 backups migrate without starting a new program or dropping legacy
     delete old.fourDayPlan;
     old.workouts[1].workoutId = id;
     const migrated = parseBackup(JSON.stringify(old));
-    assert.equal(migrated.schemaVersion, 6);
+    assert.equal(migrated.schemaVersion, 7);
     assert.equal(migrated.fourDayPlan, null);
     assert.deepEqual(migrated.workouts, old.workouts);
     assert.equal(logic.workoutForDay(migrated, 1).id, id);
@@ -208,10 +208,10 @@ test("the actual SQL write gate prevents a cached schema-5 client erasing a four
   try {
     db.exec("CREATE TABLE gym_progress (user_email TEXT PRIMARY KEY, state_json TEXT, version INTEGER, updated_at INTEGER)");
     db.prepare("INSERT INTO gym_progress VALUES (?, ?, 1, 1)").run("athlete", JSON.stringify(plan()));
-    assert.equal(db.prepare(sql).run(JSON.stringify(state()), 2, 2, "athlete", 1, 5).changes, 0);
-    assert.equal(db.prepare(sql).run(JSON.stringify(plan()), 2, 2, "athlete", 1, 6).changes, 1);
-    assert.equal(db.prepare(sql).run(JSON.stringify(plan()), 3, 3, "athlete", 1, 6).changes, 0);
-    db.prepare("UPDATE gym_progress SET state_json = ?, version = 1").run(JSON.stringify(state()));
-    assert.equal(db.prepare(sql).run(JSON.stringify(state()), 2, 2, "athlete", 1, 5).changes, 1);
+    assert.equal(db.prepare(sql).run(JSON.stringify(state()), 2, 2, "athlete", 1, 5, 5).changes, 0);
+    assert.equal(db.prepare(sql).run(JSON.stringify(plan()), 2, 2, "athlete", 1, 7, 7).changes, 1);
+    assert.equal(db.prepare(sql).run(JSON.stringify(plan()), 3, 3, "athlete", 1, 7, 7).changes, 0);
+    db.prepare("UPDATE gym_progress SET state_json = ?, version = 1").run(JSON.stringify({...state(),equipment:undefined}));
+    assert.equal(db.prepare(sql).run(JSON.stringify(state()), 2, 2, "athlete", 1, 5, 5).changes, 1);
   } finally { db.close(); }
 });

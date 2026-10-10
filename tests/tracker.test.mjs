@@ -127,7 +127,7 @@ test("backups accept old raw schema-5 exports and new envelopes without dropping
   assert.equal(parseBackup(serializeBackup(emptyGoal)).profile.stepGoal, "");
   assert.throws(() => parseBackup("{}"), /supported/);
   assert.throws(() => parseBackup("{"), /JSON/);
-  assert.throws(() => parseBackup(JSON.stringify({ ...value, schemaVersion: 7 })), /supported/);
+  assert.throws(() => parseBackup(JSON.stringify({ ...value, schemaVersion: 8 })), /supported/);
   const brokenMetric = structuredClone(value); brokenMetric.dailyMetrics["2026-10-01"].weight = 75;
   assert.throws(() => parseBackup(JSON.stringify(brokenMetric)), /daily entries/);
   const brokenUnit = structuredClone(value); brokenUnit.workouts[1].loadUnit = "stones";

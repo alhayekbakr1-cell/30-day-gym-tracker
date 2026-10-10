@@ -52,7 +52,8 @@ export type TrackerState = {
   profile: ProfileSettings;
   schedule: Record<string, string>;
   scheduleModifiedAt: string;
-  schemaVersion: 6;
+  schemaVersion: 7;
+  equipment: import("./equipment-logic").EquipmentProfile;
   startDate: string | null;
   workouts: Record<string, WorkoutLog>;
 };

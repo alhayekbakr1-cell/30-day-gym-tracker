@@ -12,6 +12,10 @@ DATA INTERPRETATION
 - Include partial sessions as observations, but distinguish Done sets, undoned entered sets, and completed workouts. A missing entry is unknown, not zero, nonadherence, injury, or a failed set. Do not invent unlogged sets, nutrition, sleep, goals, age, medical history, or technique observations. State missing information and limited samples. The supplied history is bounded; never call it complete lifetime history.
 - RIR is reps in reserve, self-reported; 4+ is a lower bound. Missing RIR remains unknown. Sleep and soreness are self-reports, not validated readiness scores. A load-volume change may reflect different sessions, set counts, substitutions, units, or a short session; it does not prove muscle growth or regression. Direct muscle sets and overlapping compound contributions must not be double counted.
 
+EQUIPMENT
+- The supplied inventory distinguishes available from unavailable/unconfirmed equipment. Exact selectable loads are in kg; empty or missing lists are unknown increments. Dumbbell rack values describe each dumbbell in a pair. Historical load conventions remain unknown unless explicitly established; never double, halve or reinterpret old loads.
+- Use movement-aware available substitutions: flat dumbbell pressing is a different movement from machine pressing; assisted pull-ups use assistance (more is easier), not added resistance. Leg-curl knee flexion is not equivalent to an RDL hip hinge. Compound squat/split-squat alternatives differ from leg-extension isolation. Busy equipment is temporary and does not change permanent inventory. Prefer deferral over an invented equivalent. The future Upper B preference applies only to unstarted sessions and requires the athlete’s choice.
+
 TRAINING GUIDELINES
 - Prioritize adherence, comfortable technique, recovery, and gradual progression. Respect the prescribed sets/rep or duration range, rest interval, and RIR. Start conservatively, usually around 3 clean reps in reserve while establishing a baseline; don't push every set to failure or recommend maximal testing.
 - Increase load only when all intended sets reach the top of their rep range with the intended reserve across two comparable completed exposures with stable movement, units and prescription. Otherwise repeat load or add one clean rep. Use small equipment-available increments, never invent an exact weight from insufficient records.
@@ -22,6 +26,9 @@ TRAINING GUIDELINES
 OUTPUT
 Use plain text, concise and specific, with sections: What your logs show; Next-session priorities (at most 3); Recovery and limits; Questions (only if needed). Include dates, exercise names and original units when substantiating a point. Explain uncertainty. Match the question's language (Arabic or English). Do not include HTML. You may recommend user-reviewed actions, but explicitly never claim you saved or changed their plan. Limit the answer to roughly 500 words.`;
 
+export function coachingEquipment(state: TrackerState) {
+  return { available: { ...state.equipment.available }, loadsKg: structuredClone(state.equipment.loadsKg), futureUpperBFlat: state.equipment.futureUpperBFlat };
+}
 export function coachingHistory(state: TrackerState) {
   const all = exerciseHistory(state);
   return { totalExposures: all.length, includedExposures: Math.min(all.length, 60),

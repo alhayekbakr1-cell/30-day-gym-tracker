@@ -15,6 +15,8 @@ import ProgramIntelligence from "./ProgramIntelligence";
 import FourDaySetup from "./FourDaySetup";
 import { FOUR_DAY_KEY_START, initialFourDaySets, isFourDayKey } from "./four-day-data";
 import ProgressDashboard from "./ProgressDashboard";
+import EquipmentSettings from "./EquipmentSettings";
+import { EQUIPMENT, equipmentAlternatives, availableExercise, requirements, MOVEMENT_EMPHASIS, loadOptions, loadConvention, equipmentProgression, latestIncomplete } from "./equipment-logic";
 import ExerciseHistory from "./ExerciseHistory";
 import GeminiCoach from "./GeminiCoach";
 import OfflineSupport from "./OfflineSupport";
@@ -31,7 +33,6 @@ import type {
 } from "./tracker-types";
 import {
   EXERCISE_LIBRARY,
-  EXERCISE_SUBSTITUTIONS,
   WARMUP_ITEMS,
   WORKOUTS,
 } from "./workout-data";
@@ -229,6 +230,9 @@ export default function GymTracker({
   const isPreviewUser = user?.email === "preview@gym.local";
   const sync = useTrackerSync(user?.email ?? null);
   const { state: tracker, status: syncStatus, loaded: progressLoaded, version: syncVersion, updatedAt: lastSyncedAt, controller } = sync;
+  const [busySlots, setBusySlots] = useState<Record<string, boolean>>({});
+  const [historyId, setHistoryId] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedKey, setSelectedDay] = useState(1);
   const selectedDay = tracker.startDate ? selectedKey : FOUR_DAY_KEY_START;
   const workoutState = useMemo<TrackerState>(() => tracker.startDate ? tracker : {
@@ -437,7 +441,8 @@ export default function GymTracker({
       startChallenge();
       return;
     }
-    const day = nextWorkoutDay(controller.getSnapshot().state);
+    const current = controller.getSnapshot().state;
+    const day = Number(latestIncomplete(current) ?? nextWorkoutDay(current));
     chooseDay(day);
     if (shortMode) {
       updateWorkout(day, (log) => ({
@@ -694,7 +699,6 @@ export default function GymTracker({
           <a href="#calendar">Calendar</a>
           <a href="#coach">Coach</a>
           <a href="#progress-dashboard">Progress</a>
-          <a href="#exercise-history">Exercise history</a>
           <a href="#program">Evidence</a>
           <a href="#wellness">Recovery</a>
         </nav>
@@ -778,7 +782,8 @@ export default function GymTracker({
         </section>
 
         <ProgressDashboard tracker={tracker} />
-        <ExerciseHistory tracker={tracker} />
+        <details className="card" id="exercise-history" open={historyOpen} onToggle={e=>setHistoryOpen(e.currentTarget.open)}><summary>Past exercise sets</summary>{historyOpen && <ExerciseHistory key={historyId} initialExercise={historyId} tracker={tracker} />}</details>
+        <EquipmentSettings profile={tracker.equipment} disabled={!progressLoaded || !sync.editable || sync.conflict} onChange={equipment=>mutateTracker(current=>({...current,equipment}))} />
 
         <section className="workout-layout" id="workout-detail" aria-labelledby="workout-title">
           <article className="card workout-card">
@@ -1101,7 +1106,10 @@ export default function GymTracker({
                         prescription,
                       );
                       const substitutionOptions =
-                        EXERCISE_SUBSTITUTIONS[exercise.id] ?? [];
+                        equipmentAlternatives(exercise.id, tracker.equipment, Boolean(busySlots[`${selectedDay}:${exercise.id}`]));
+                      const configuredLoads = loadOptions(effectiveId, tracker.equipment, activeLog.loadUnit);
+                      const previousLoad = previous?.sets.at(-1)?.load;
+                      const nextLoad = equipmentProgression(effectiveId, tracker.equipment, activeLog.loadUnit, previousLoad ? convertLoad(Number(previousLoad), previous!.loadUnit, activeLog.loadUnit) : null);
                       const hasLoggedSet = exerciseSets.some(
                         (set) => set.done || set.load || set.reps || set.rir,
                       );
@@ -1117,27 +1125,25 @@ export default function GymTracker({
                               </div>
                             </div>
                             <p>{displayedExercise.cue} Rest {prescription.restSeconds / 60} min between sets.</p>
-                            {substitutionOptions.length > 0 ? (
-                              <label className="substitution-control">
-                                <span>Equipment occupied?</span>
-                                <select
-                                  aria-label={`Choose an alternative for ${exercise.name}`}
-                                  disabled={!editable || hasLoggedSet}
-                                  value={effectiveId}
-                                  onChange={(event) => setSubstitution(exercise.id, event.target.value)}
-                                >
-                                  <option value={exercise.id}>Original · {exercise.name}</option>
-                                  {substitutionOptions.map((optionId) => (
-                                    <option key={optionId} value={optionId}>
-                                      Swap · {EXERCISE_LIBRARY[optionId]?.name ?? optionId}
-                                    </option>
-                                  ))}
-                                </select>
-                                {hasLoggedSet && <small>Clear this session&apos;s set entries before swapping.</small>}
-                              </label>
-                            ) : exercise.alternative ? (
-                              <small>Alternative: {exercise.alternative}</small>
-                            ) : null}
+                            {effectiveId !== exercise.id && <small>Programmed: {exercise.name} · logging: {displayedExercise.name}</small>}
+                            {!availableExercise(effectiveId, tracker.equipment) && <p className="equipment-warning">This movement needs unavailable or unconfirmed equipment. {substitutionOptions[0] ? `Suggested: ${EXERCISE_LIBRARY[substitutionOptions[0]]?.name}.` : 'Defer this movement until suitable equipment is available.'}</p>}
+                            <details className="exercise-options"><summary>Equipment busy / change movement</summary>
+                              <label className="equipment-choice"><input type="checkbox" disabled={!editable || hasLoggedSet} checked={Boolean(busySlots[`${selectedDay}:${exercise.id}`])} onChange={e=>setBusySlots(current=>({...current,[`${selectedDay}:${exercise.id}`]:e.target.checked}))}/>Planned equipment is busy for this visit</label>
+                              <label className="substitution-control"><span>Movement to log</span><select aria-label={`Choose an alternative for ${exercise.name}`} disabled={!editable || hasLoggedSet} value={effectiveId} onChange={e=>setSubstitution(exercise.id,e.target.value)}>
+                                <option value={exercise.id}>Original · {exercise.name}</option>
+                                {effectiveId !== exercise.id && !substitutionOptions.includes(effectiveId) && <option value={effectiveId}>Current · {displayedExercise.name}</option>}
+                                {substitutionOptions.map(id=><option key={id} value={id}>{EXERCISE_LIBRARY[id]?.name} · {MOVEMENT_EMPHASIS[id]??'Different movement'}</option>)}
+                              </select></label>
+                              {hasLoggedSet && <small>Existing set entries lock this movement to protect its identity.</small>}
+                              {!substitutionOptions.length && <p>{exercise.id==='leg-curl'?'No available knee-flexion replacement. An RDL is a hip hinge, not a leg-curl equivalent.':'No suitable available replacement.'} Leave sets unfinished to defer; the workout stays incomplete.</p>}
+                              <p>Required: {(requirements(effectiveId)??[]).map(id=>EQUIPMENT[id]).join(', ')||'No added equipment'}. Returning to the original is available before entering sets.</p>
+                            </details>
+                            <details className="exercise-options"><summary>Setup & load choices</summary><p>{loadConvention(effectiveId)}</p>
+                              {(requirements(effectiveId)??[]).map(id=>tracker.equipment.notes[id]?<p key={id}>My {EQUIPMENT[id]} reminder: {tracker.equipment.notes[id]}</p>:null)}
+                              <label>My exercise reminder<textarea maxLength={500} rows={2} disabled={!sync.editable || sync.conflict} value={tracker.equipment.exerciseNotes[effectiveId]??''} onChange={e=>mutateTracker(current=>({...current,equipment:{...current.equipment,modifiedAt:nowIso(),exerciseNotes:{...current.equipment.exerciseNotes,[effectiveId]:e.target.value}}}))}/></label>
+                              <p>{configuredLoads.length ? `Configured choices: ${configuredLoads.join(', ')} ${activeLog.loadUnit}. They appear as suggestions in the weight field; numeric entry remains available.` : 'Exact load choices not set. Enter a weight directly or configure the rack / stack in My gym equipment.'}</p>
+                            </details>
+                            <button className="history-link" type="button" onClick={()=>{setHistoryId(effectiveId);setHistoryOpen(true);document.getElementById('exercise-history')?.scrollIntoView({behavior:'smooth'});}}>Past sets</button>
                           </div>
 
                           <div className={`performance-card ${recommendation.kind}`}>
@@ -1157,12 +1163,13 @@ export default function GymTracker({
                             </div>
                             <div>
                               <span>Today&apos;s suggestion</span>
-                              <strong>{recommendation.text}</strong>
+                              <strong>{effectiveId === "assisted-pullup" ? "Choose assistance for controlled reps at the intended effort. More assistance is easier; no automatic load progression." : recommendation.text}{recommendation.kind === "increase" && nextLoad !== null && effectiveId !== "assisted-pullup" ? ` Smallest configured next load: ${nextLoad} ${activeLog.loadUnit}; use only if the increment is manageable and your load convention matches.` : ""}</strong>
                             </div>
                           </div>
 
                           <div className="set-table" role="group" aria-label={`${displayedExercise.name} set log`}>
                             <div className="set-log-help"><span>Enter { /sec/i.test(displayedExercise.reps) ? "seconds" : "reps" } before checking Done. Load is optional for bodyweight sets.</span>{previous && <button type="button" disabled={!editable} onClick={() => { updateWorkout(selectedDay, log => copyPreviousSets(tracker, selectedDay, log, exercise.id, setCount)); setSessionMessage(`Previous values added to empty rows for ${displayedExercise.name}. Log today’s effort before checking Done.`); }}>Use last values</button>}</div>
+                            {configuredLoads.length > 0 && <datalist id={`loads-${exercise.id}`}>{configuredLoads.map(value=><option key={value} value={value}/>)}</datalist>}
                             <div className="set-head" aria-hidden="true">
                               <span>Set</span><span>{activeLog.loadUnit}</span><span>{/sec/i.test(displayedExercise.reps) ? "Sec" : "Reps"}</span><span>RIR</span><span>Done</span>
                             </div>
@@ -1176,6 +1183,7 @@ export default function GymTracker({
                                     <span className="sr-only">{label}, weight</span>
                                     <input
                                       type="text"
+                                      list={`loads-${exercise.id}`}
                                       inputMode="decimal"
                                       maxLength={12}
                                       placeholder={activeLog.loadUnit}
@@ -1318,7 +1326,7 @@ export default function GymTracker({
           </aside>
         </section>
 
-        <GeminiCoach key={sync.accountChanged ? "signed-out" : user?.email ?? "guest"} email={sync.accountChanged ? null : user?.email ?? null} controller={controller} enabled={progressLoaded && sync.editable && sync.online && !isPreviewUser} />
+        <details className="card"><summary>Ask Gemini for a training review</summary><GeminiCoach key={sync.accountChanged ? "signed-out" : user?.email ?? "guest"} email={sync.accountChanged ? null : user?.email ?? null} controller={controller} enabled={progressLoaded && sync.editable && sync.online && !isPreviewUser} /></details>
         {user && progressLoaded && <DeviceDrafts base={sync.recoveryBase} />}
         <CoachPanel ready={progressLoaded} signedIn={Boolean(user)} tracker={tracker} />
 

@@ -4,10 +4,10 @@ import { EXERCISE_LIBRARY, canonicalExerciseId } from "./workout-data";
 import { exercisePrescriptionFor } from "./session-logic";
 
 export type ExerciseExposure = {
-  id: string; exerciseId: string; name: string; date: string; sessionKey: string;
+  plannedName: string; substituted: boolean; id: string; exerciseId: string; name: string; date: string; sessionKey: string;
   sessionId: string; workoutId: string; slot: string; unit: "kg" | "lb";
   countUnit: "reps" | "seconds"; completed: boolean; sets: SetLog[];
-  prescription: ReturnType<typeof exercisePrescriptionFor>;
+  programmedPrescription: ReturnType<typeof exercisePrescriptionFor>; prescription: ReturnType<typeof exercisePrescriptionFor>;
 };
 /** Read-only projection. Each variant keeps its own effective identity and raw units. */
 export function exerciseHistory(state: TrackerState): ExerciseExposure[] {
@@ -18,10 +18,10 @@ export function exerciseHistory(state: TrackerState): ExerciseExposure[] {
       if (!sets.some(set => set.done || set.load || set.reps || set.rir)) return [];
       const exerciseId = canonicalExerciseId(effectiveExerciseId(log, slot));
       const prescription = exercisePrescriptionFor(state, Number(key), slot, log);
-      return [{ id: `${key}:${slot}`, exerciseId, name: EXERCISE_LIBRARY[exerciseId]?.name ?? exerciseId,
+      return [{ plannedName: EXERCISE_LIBRARY[slot]?.name ?? slot, substituted: effectiveExerciseId(log,slot) !== slot, id: `${key}:${slot}`, exerciseId, name: EXERCISE_LIBRARY[exerciseId]?.name ?? exerciseId,
         date, sessionKey: key, sessionId: log.prescription?.sessionId ?? `${state.blockId ?? "legacy"}:${key}`,
         workoutId: log.workoutId, slot, unit: log.loadUnit, countUnit: /sec/i.test(prescription.reps) ? "seconds" as const : "reps" as const,
-        completed: log.completed, sets: sets.map(set => ({ ...set })), prescription: { ...prescription } }];
+        completed: log.completed, programmedPrescription: { ...(log.prescription?.exercises[slot] ?? exercisePrescriptionFor(state,Number(key),slot,{...log,substitutions:{}})) }, sets: sets.map(set => ({ ...set })), prescription: { ...prescription } }];
     });
   }).sort((a, b) => b.date.localeCompare(a.date) || Number(b.sessionKey) - Number(a.sessionKey) || a.slot.localeCompare(b.slot));
 }

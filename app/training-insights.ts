@@ -23,6 +23,7 @@ export const MUSCLE_GROUPS = ["Chest", "Back", "Quads", "Hamstrings", "Lateral d
 export type MuscleGroup = (typeof MUSCLE_GROUPS)[number];
 
 export const MUSCLE_BY_EXERCISE: Record<string, MuscleGroup> = {
+  "assisted-pullup": "Back", "smith-squat": "Quads", "leg-extension": "Quads", "leg-press-calf": "Calves",
   "cable-crunch": "Core",
   "db-hip-thrust": "Glutes",
   "db-rdl": "Hamstrings",

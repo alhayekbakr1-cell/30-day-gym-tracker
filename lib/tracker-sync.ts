@@ -54,7 +54,7 @@ export class TrackerSync {
       const raw = this.storage().getItem(this.key);
       if (raw) {
         const cache = JSON.parse(raw) as Cache;
-        const state = cache.format === 1 && [5, 6].includes(cache.state?.schemaVersion) ? sanitizeTrackerState(cache.state) : null;
+        const state = cache.format === 1 && [5, 6, 7].includes(cache.state?.schemaVersion) ? sanitizeTrackerState(cache.state) : null;
         if (!state || !Number.isSafeInteger(cache.version) || cache.version < 0) throw new Error("Invalid recovery data");
         this.base = cache.base ? normalizeTrackerState(sanitizeTrackerState(cache.base)) : null;
         this.replacement = cache.replacement === true;
