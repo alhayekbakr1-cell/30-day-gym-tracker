@@ -17,6 +17,9 @@ export async function GET() {
 export async function POST(request: Request) {
   const user = await getChatGPTUser();
   if (!user) return Response.json({ error: "Sign in required" }, { status: 401 });
+  const expected = request.headers.get("x-gym-expected-account");
+  if (expected !== user.email) return Response.json({ error: "Account changed. Reload." }, { status: 412 });
+  if (request.headers.get("origin") && request.headers.get("origin") !== new URL(request.url).origin) return Response.json({ error: "Use this site to change plans." }, { status: 403 });
   try {
     const text = await request.text();
     if (text.length > 4096) return Response.json({ error: "Request is too large." }, { status: 413 });

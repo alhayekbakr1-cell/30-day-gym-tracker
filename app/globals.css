@@ -3609,3 +3609,20 @@ input:disabled + .control-check {
   .four-day-actions, .four-day-actions label, .four-day-actions button { width: 100%; }
   .four-day-effort select { width: 100%; }
 }
+
+.tab-status,.offline-update,.offline-start { padding: 1rem; background: #fff6df; border: 1px solid #d8c6a0; border-radius: 12px; margin: 0 0 1rem; overflow-wrap: anywhere; }
+.offline-start { margin: 1rem; }
+.history-filters { display: flex; flex-wrap: wrap; gap: 1rem; margin: 1rem 0; }
+.history-filters label { display: grid; gap: .4rem; flex: 1 1 180px; min-width: 0; }
+.history-filters select,.gemini-coach textarea { width: 100%; min-width: 0; padding: .8rem; border: 1px solid #c7d0c8; border-radius: 10px; background: white; font: inherit; }
+.history-help,.gemini-coach>p { line-height: 1.6; }
+.exposure-list { display: grid; gap: 1rem; margin-top: 1rem; }
+.exposure { padding: 1rem; background: #f6f3eb; border-radius: 12px; overflow-wrap: anywhere; }
+.exposure-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .5rem; }
+.history-sets { list-style: none; padding: 0; display: grid; gap: .5rem; }
+.history-sets li { display: flex; flex-wrap: wrap; gap: .8rem; padding: .5rem 0; border-bottom: 1px solid #dedbd1; }
+.gemini-coach textarea { display: block; margin: .6rem 0 1rem; }
+.coach-answer { background: #f1f5ef; border-radius: 12px; padding: 1rem; margin-top: 1rem; overflow-wrap: anywhere; }
+.coach-answer p { white-space: pre-wrap; line-height: 1.7; }
+.device-drafts div { display: flex; flex-wrap: wrap; gap: .8rem; padding: .6rem 0; }
+.history-filters select:focus-visible,.gemini-coach textarea:focus-visible,.exercise-history button:focus-visible { outline: 3px solid #245e4d; outline-offset: 3px; }

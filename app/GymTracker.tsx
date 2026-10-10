@@ -15,6 +15,10 @@ import ProgramIntelligence from "./ProgramIntelligence";
 import FourDaySetup from "./FourDaySetup";
 import { FOUR_DAY_KEY_START, initialFourDaySets, isFourDayKey } from "./four-day-data";
 import ProgressDashboard from "./ProgressDashboard";
+import ExerciseHistory from "./ExerciseHistory";
+import GeminiCoach from "./GeminiCoach";
+import OfflineSupport from "./OfflineSupport";
+import DeviceDrafts from "./DeviceDrafts";
 import SmartToday from "./SmartToday";
 import WellnessPanel from "./WellnessPanel";
 import type {
@@ -307,7 +311,7 @@ export default function GymTracker({
 
   const session = sessionProgress(workoutState, selectedDay, activeLog);
   const readyToComplete = session.ready;
-  const editable = started && !activeLog.completed && !sync.conflict;
+  const editable = started && !activeLog.completed && !(sync.conflict || !sync.editable);
 
   const updateWorkout = useCallback(
     (day: number, transform: (log: WorkoutLog) => WorkoutLog) => {
@@ -346,7 +350,7 @@ export default function GymTracker({
   };
 
   const startChallenge = () => {
-    if (!progressLoaded || restarting || sync.conflict) return;
+    if (!progressLoaded || restarting || (sync.conflict || !sync.editable)) return;
     if (!user) {
       window.location.assign(signInPath);
       return;
@@ -517,13 +521,13 @@ export default function GymTracker({
   };
 
   const resetChallenge = async () => {
-    if (!user || isPreviewUser || !controller.getSnapshot().state.startDate) return false;
+    if (!sync.editable || !user || isPreviewUser || !controller.getSnapshot().state.startDate) return false;
     setRestarting(true);
     setBlockMessage("");
     try {
       if (!await controller.sync() || controller.getSnapshot().pending) throw new Error("Sync first");
       const response = await fetch("/api/challenges", {
-        method: "POST", headers: { "content-type": "application/json" },
+        method: "POST", headers: { "content-type": "application/json", "x-gym-expected-account": user.email },
         body: JSON.stringify({ baseVersion: controller.getSnapshot().version, startDate: localIsoDate() }),
         signal: AbortSignal.timeout(15000),
       });
@@ -541,7 +545,7 @@ export default function GymTracker({
   };
 
   const restoreBackup = async (state: TrackerState) => {
-    if (!progressLoaded || restarting || sync.conflict) return false;
+    if (!progressLoaded || restarting || (sync.conflict || !sync.editable)) return false;
     setRestarting(true);
     try {
       if (!await controller.sync()) return false;
@@ -619,21 +623,23 @@ export default function GymTracker({
                 <span className="sync-dot" aria-hidden="true" />
                 {syncLabel}
               </button>
-              <a href={signOutPath}>Sign out</a>
+              <a href={signOutPath} target="_top" onClick={sync.revokeAccount}>Sign out</a>
             </div>
           </details>
         ) : (
-          <a className="signin-link" href={signInPath}>
+          <a className="signin-link" href={signInPath} target="_top">
             Sign in with ChatGPT
           </a>
         )}
       </header>
 
       <div className="content" id="top">
+        <OfflineSupport />
+        <div className="tab-status" role="status">{sync.ownership}{!sync.online && ` · Offline — ${sync.localSaved ? "saved on this device; waiting to sync" : "keep this tab open; device save is not confirmed"}`}</div>
         <div className={`save-status ${syncStatus === "error" || sync.storageError ? "needs-attention" : ""}`} role="status">
           <span><strong>{syncLabel}</strong>{sync.storageError ? ` · ${sync.storageError}` : sync.message ? ` · ${sync.message}` : sync.localOnly && user ? " · Preview data stays in this browser." : ""}</span>
           {(syncStatus === "error" || sync.storageError) && <button type="button" onClick={() => void controller.sync()}>Retry save</button>}
-          {sync.conflict && <button type="button" onClick={() => { downloadBackup(controller.getSnapshot().state, "gym-tracker-device-draft"); controller.acceptServerPlan(); }}>Export draft & load server plan</button>}
+          {sync.conflict && sync.editable && <button type="button" onClick={() => { downloadBackup(controller.getSnapshot().state, "gym-tracker-device-draft"); controller.acceptServerPlan(); }}>Export draft & load server plan</button>}
         </div>
         <section className={`status-grid ${started ? "has-started" : ""}`} aria-labelledby="hero-title">
           <article className="card hero-card">
@@ -645,7 +651,7 @@ export default function GymTracker({
               </p>
             </div>
             <div className="hero-action-row">
-              <button className="primary-button" disabled={!progressLoaded || restarting} type="button" onClick={startChallenge}>
+              <button className="primary-button" disabled={!progressLoaded || restarting || !sync.editable} type="button" onClick={startChallenge}>
                 {restarting ? "Starting new plan…" : started ? "Continue next workout" : progressLoaded ? "Start four-day plan" : "Loading your progress…"}
               </button>
               {!user && <span>Sign in once to keep every log synced.</span>}
@@ -688,19 +694,20 @@ export default function GymTracker({
           <a href="#calendar">Calendar</a>
           <a href="#coach">Coach</a>
           <a href="#progress-dashboard">Progress</a>
+          <a href="#exercise-history">Exercise history</a>
           <a href="#program">Evidence</a>
           <a href="#wellness">Recovery</a>
         </nav>
 
         <SmartToday
-          ready={progressLoaded && !restarting && !sync.conflict}
+          ready={progressLoaded && !restarting && !(sync.conflict || !sync.editable)}
           onOpen={openSmartWorkout}
           onStart={startChallenge}
           started={started}
           tracker={tracker}
         />
 
-        {started && <FourDaySetup tracker={tracker} disabled={restarting || sync.conflict}
+        {started && <FourDaySetup tracker={tracker} disabled={restarting || (sync.conflict || !sync.editable)}
           onActivate={activateFourDays}
           onSets={(template, slot, count) => mutateTracker(current => changeFourDaySets(current, template, slot, count))}
           onEffort={rir => mutateTracker(current => current.fourDayPlan ? { ...current, fourDayPlan: { ...current.fourDayPlan, rir, modifiedAt: nowIso() } } : current)} />}
@@ -771,6 +778,7 @@ export default function GymTracker({
         </section>
 
         <ProgressDashboard tracker={tracker} />
+        <ExerciseHistory tracker={tracker} />
 
         <section className="workout-layout" id="workout-detail" aria-labelledby="workout-title">
           <article className="card workout-card">
@@ -812,7 +820,7 @@ export default function GymTracker({
               </div>
             </div>
 
-            {activeLog.completed && <div className="session-notice"><span>This session is saved. Reopen it to make changes.</span><button className="secondary-button" disabled={!started || sync.conflict} type="button" onClick={reopenWorkout}>Edit completed session</button></div>}
+            {activeLog.completed && <div className="session-notice"><span>This session is saved. Reopen it to make changes.</span><button className="secondary-button" disabled={!started || (sync.conflict || !sync.editable)} type="button" onClick={reopenWorkout}>Edit completed session</button></div>}
             {sessionMessage && <p className="session-notice" role="status">{sessionMessage}</p>}
 
             {started && tracker.startDate && activeScheduledDate && (
@@ -1265,14 +1273,14 @@ export default function GymTracker({
                 <span>{activeLog.completed ? "Your log is ready for the next session." : `${session.warmupDone} of ${WARMUP_ITEMS.length} warm-up steps · ${session.done} of ${session.total} working sets`}</span>
               </div>
               {activeLog.completed ? (
-                <button className="secondary-button" disabled={!started || sync.conflict} type="button" onClick={reopenWorkout}>
+                <button className="secondary-button" disabled={!started || (sync.conflict || !sync.editable)} type="button" onClick={reopenWorkout}>
                   Reopen workout
                 </button>
               ) : (
                 <button
                   className="primary-button"
                   type="button"
-                  disabled={!started || !readyToComplete || sync.conflict}
+                  disabled={!started || !readyToComplete || (sync.conflict || !sync.editable)}
                   onClick={completeWorkout}
                 >
                   Complete workout
@@ -1310,6 +1318,8 @@ export default function GymTracker({
           </aside>
         </section>
 
+        <GeminiCoach key={sync.accountChanged ? "signed-out" : user?.email ?? "guest"} email={sync.accountChanged ? null : user?.email ?? null} controller={controller} enabled={progressLoaded && sync.editable && sync.online && !isPreviewUser} />
+        {user && progressLoaded && <DeviceDrafts base={sync.recoveryBase} />}
         <CoachPanel ready={progressLoaded} signedIn={Boolean(user)} tracker={tracker} />
 
         <ProgramIntelligence tracker={tracker} />
@@ -1328,7 +1338,7 @@ export default function GymTracker({
           onSyncCheck={() => controller.sync()}
           onRestore={restoreBackup}
           localOnly={sync.localOnly}
-          canRestore={progressLoaded && Boolean(user) && !sync.conflict}
+          canRestore={progressLoaded && Boolean(user) && !(sync.conflict || !sync.editable)}
           restarting={restarting}
           started={started}
           syncStatus={syncStatus}

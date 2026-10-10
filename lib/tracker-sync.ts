@@ -27,7 +27,7 @@ export class TrackerSync {
   private task: Promise<boolean> | null = null;
   private queued: ReturnType<typeof setTimeout> | null = null;
   private remoteConflict: SyncedProgress | null = null;
-  constructor(private key: string, private storage: () => StorageLike, private api: ProgressAPI | null) {}
+  constructor(private key: string, private storage: () => StorageLike, private api: ProgressAPI | null, private owns: () => boolean = () => true, private notify: () => void = () => {}, private retainCompetingDrafts = false) {}
   getSnapshot = () => this.snapshot;
   getServerSnapshot = () => this.initial;
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
@@ -36,10 +36,11 @@ export class TrackerSync {
     this.listeners.forEach(listener => listener());
   }
   private persist() {
-    if (this.unreadableCache || !this.snapshot.loaded) return false;
+    if (!this.owns() || this.unreadableCache || !this.snapshot.loaded) return false;
     const cache: Cache = { format: 1, state: this.snapshot.state, base: this.base, version: this.snapshot.version, pending: this.snapshot.pending, replacement: this.replacement, updatedAt: this.snapshot.updatedAt };
     try {
       this.storage().setItem(this.key, JSON.stringify(cache));
+      this.notify();
       this.publish({ localSaved: true, storageError: null });
       return true;
     } catch {
@@ -66,7 +67,7 @@ export class TrackerSync {
     if (!this.api) this.publish({ loaded: true, status: "local" });
   }
   mutate(transform: (current: TrackerState) => TrackerState) {
-    if (!this.snapshot.loaded || this.snapshot.conflict) return;
+    if (!this.owns() || !this.snapshot.loaded || this.snapshot.conflict) return;
     const next = transform(this.snapshot.state);
     if (next === this.snapshot.state) return;
     this.publish({ state: next, pending: Boolean(this.api), status: this.api ? "queued" : "local" });
@@ -77,11 +78,12 @@ export class TrackerSync {
     }
   }
   replace(next: TrackerState) {
+    if (!this.owns()) return;
     this.replacement = true;
     this.mutate(() => next);
   }
   acceptServerPlan() {
-    if (!this.remoteConflict) return;
+    if (!this.owns() || !this.remoteConflict) return;
     const progress = this.remoteConflict;
     this.remoteConflict = null;
     this.replacement = false;
@@ -91,6 +93,7 @@ export class TrackerSync {
   }
   /** Used only after the server has acknowledged an archive/restart transaction. */
   acceptAcknowledged(progress: SyncedProgress) {
+    if (!this.owns()) return;
     this.base = progress.state;
     this.replacement = false;
     this.publish({ state: normalizeTrackerState(progress.state), version: progress.version, updatedAt: progress.updatedAt, pending: false, status: this.api ? "saved" : "local", loaded: true, conflict: false, message: "" });
@@ -99,6 +102,12 @@ export class TrackerSync {
   private reconcile(progress: SyncedProgress, sent?: TrackerState) {
     const remote = normalizeTrackerState(progress.state);
     const local = this.snapshot.state;
+    if (this.retainCompetingDrafts && this.snapshot.pending && !sent && progress.version > this.snapshot.version && !equal(local, remote)) {
+      // Keep an immutable, exportable copy before timestamp-based merging can choose another tab's field.
+      const retained: Cache = { format: 1, state: local, base: this.base, version: this.snapshot.version, pending: true, replacement: this.replacement, updatedAt: this.snapshot.updatedAt };
+      try { this.storage().setItem(`${this.key}:retained:${crypto.randomUUID()}`, JSON.stringify(retained)); }
+      catch { this.publish({ storageError: "Could not preserve this competing draft. Merge is paused; export JSON before retrying." }); throw new Error("draft-retention-failed"); }
+    }
     const differentPlan = remote.blockId !== local.blockId || remote.startDate !== local.startDate;
     const serverChangedPlan = this.base
       ? remote.blockId !== this.base.blockId || remote.startDate !== this.base.startDate
@@ -132,18 +141,23 @@ export class TrackerSync {
     return this.task;
   };
   private async run(refresh: boolean) {
+    if (!this.owns()) return false;
     if (!this.api) return this.persist();
     try {
       if (refresh || !this.snapshot.loaded) {
         this.publish({ status: "loading" });
-        this.reconcile(await this.api.read());
+        const progress = await this.api.read();
+        if (!this.owns()) return false;
+        this.reconcile(progress);
       }
       let conflicts = 0;
       while (this.snapshot.pending) {
+        if (!this.owns()) return false;
         if (this.snapshot.conflict) throw new Error("plan-conflict");
         const sent = this.snapshot.state;
         this.publish({ status: "syncing" });
         const result = await this.api.write(sent, this.snapshot.version);
+        if (!this.owns()) return false;
         if (result.conflict) {
           this.reconcile(result.progress);
           if (++conflicts >= 3) throw new Error("Repeated write conflict");
@@ -156,6 +170,14 @@ export class TrackerSync {
       this.persist();
       return false;
     }
+  }
+  reloadRecovery() {
+    this.publish({ loaded: false });
+    this.hydrate();
+  }
+  clearAccountView() {
+    this.dispose(); this.base = null;
+    this.publish({ state: normalizeTrackerState(EMPTY_STATE), loaded: false, pending: false, status: "error", message: "Account changed. Reload to confirm your identity. Previous drafts remain on this device." });
   }
   dispose() { if (this.queued) clearTimeout(this.queued); this.queued = null; }
 }
