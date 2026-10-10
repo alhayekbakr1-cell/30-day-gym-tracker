@@ -1,6 +1,12 @@
 # Publish Gym Tracker through GitHub
 
-The four-day tracker changes are published to the repository on a pull request branch. The existing production host is the ChatGPT Sites URL below. GitHub Actions currently verifies the source; there is no GitHub deployment workflow, and these changes have not been published to the live host.
+The four-day tracker changes are published to the repository on a pull request branch. The existing production host is [ChatGPT Sites](https://thirty-day-gym-tracker.drbakralhayek.chatgpt.site/). GitHub Actions currently verifies the source; there is no GitHub deployment workflow, and these changes have not been published to the live host.
+
+## Current production release gate
+
+The live host's `/signin-with-chatgpt` endpoint redirects to the OpenAI OAuth authorization service, and unauthenticated `/api/progress` requests return `401`. These checks confirm the Sites sign-in route and unauthenticated API gate respond; they do not verify a completed sign-in or authenticated D1 reads and writes.
+
+The production project must keep its real D1 database attached to binding `DB`. The current Vite configuration generates an all-zero placeholder database ID in `dist/server/wrangler.json`; `.openai/hosting.json` declares the binding name and Sites project metadata, not the database ID. Do not publish that generated Wrangler configuration as a standalone Cloudflare Worker deployment. The live Sites environment may inject its own binding, but that could not be verified from the public endpoints; confirm it in the Sites publishing control plane before release.
 
 ## What GitHub can host
 
@@ -29,7 +35,7 @@ The supplied `.gitignore` excludes dependency installations, generated output, l
 
 `.github/workflows/ci.yml` runs on pushes to `main`, pull requests, and manual dispatch. It uses Node.js 24 and the supplied lockfile, then runs TypeScript, ESLint, the regression suite, the production build, artifact validation, and Worker HTML checks. It has read-only repository permissions and needs no hosting credentials.
 
-The workflow runs TypeScript, lint, regression tests, the production build, artifact validation, and a Worker HTML smoke check. Require its latest run to pass before publishing a production release. Then verify authenticated sign-in and workout persistence on the live host; public unauthenticated probes cannot establish that D1 reads and writes work.
+The workflow runs TypeScript, lint, regression tests, the production build, artifact validation, and a Worker HTML smoke check. Require its latest run to pass before publishing a production release. Then complete a real sign-in and verify an authenticated workout save and reload on the live host; public unauthenticated probes cannot establish that D1 reads and writes work.
 
 ## Requirements before deploying to another host
 
