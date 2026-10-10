@@ -47,6 +47,20 @@ export function logExtraCardio(state:TrackerState,id:string,input:Pick<CardioSes
  if(!/^extra-[a-zA-Z0-9_-]{1,80}$/.test(id)||!validSessionInput(input)||!state.cardio.plan.available.includes(input.modality))throw Error('Enter valid cardio details.');
  return {...state,cardio:{...state.cardio,sessions:{...state.cardio.sessions,[id]:{...input,id,opportunityId:null,completedAt:timestamp,modifiedAt:timestamp}}}};
 }
+/** One stable cardio log per strength session; never mutates the lifting log. */
+export function strengthCardioId(state:TrackerState,key:number) {
+ const identity=state.blockId??state.startDate??'current';
+ let hash=2166136261;for(const char of identity){hash=Math.imul(hash^char.charCodeAt(0),16777619)>>>0;}
+ return `extra-lift-${hash.toString(16)}-${key}`;
+}
+export function logStrengthCardio(state:TrackerState,key:number,input:Pick<CardioSession,'date'|'modality'|'minutes'|'effort'|'note'>,timestamp=now()):TrackerState {
+ const id=strengthCardioId(state,key);
+ if(state.cardio?.sessions[id])return state;
+ const initialized=state.cardio?state:enableCardio(state,input.date,timestamp);
+ if(!state.cardio && initialized.cardio)initialized.cardio={...initialized.cardio,opportunities:{}};
+ const configured=editCardioPlan(initialized,{enabled:true,sessionsPerWeek:4,minutesPerSession:20},timestamp);
+ return logExtraCardio(configured,id,input,timestamp);
+}
 function validSessionInput(input:Pick<CardioSession,'date'|'modality'|'minutes'|'effort'|'note'>) {return isIsoDate(input.date)&&Object.hasOwn(CARDIO_MODALITIES,input.modality)&&typeof input.minutes==='number'&&Number.isFinite(input.minutes)&&input.minutes>0&&input.minutes<=600&&[null,'easy','moderate','hard'].includes(input.effort)&&typeof input.note==='string'&&input.note.length<=500;}
 export function editCardioSession(state:TrackerState,id:string,input:Pick<CardioSession,'date'|'modality'|'minutes'|'effort'|'note'>,timestamp=now()):TrackerState {
  if(!state.cardio?.sessions[id]||!validSessionInput(input))throw Error('Enter valid cardio details.');

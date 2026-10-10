@@ -103,3 +103,12 @@ test('CSV cardio rows keep actual minutes separate from lifting columns and esca
 test('future opportunities freeze when first edited; viewed past weeks do not adopt a newer target',()=>{
  let value=enabled();const futureWeek='2026-10-12';const visit=c.cardioOpportunities(value.cardio,futureWeek,date)[0];value=c.setCardioOpportunity(value,visit,{plannedDate:'2026-10-14'},stamp);assert.equal(Object.values(value.cardio.opportunities).filter(row=>row.week===futureWeek).length,3);value=c.editCardioPlan(value,{sessionsPerWeek:4},stamp);assert.equal(c.cardioOpportunities(value.cardio,futureWeek,date).length,3);assert.equal(c.cardioOpportunities(value.cardio,'2026-10-19',date).length,4);assert.equal(c.cardioSummary(value.cardio,'2026-10-12','2026-10-20').planned,3);
 });
+
+test('each strength session has one stable 20-minute cardio action without changing lifting history',()=>{
+ const original=state();let value=c.logStrengthCardio(original,1,input({minutes:20}),stamp);
+ assert.equal(value.cardio.plan.sessionsPerWeek,4);assert.equal(value.cardio.plan.minutesPerSession,20);
+ assert.deepEqual(value.workouts,original.workouts);assert.deepEqual(value.fourDayPlan,original.fourDayPlan);
+ assert.deepEqual(c.logStrengthCardio(value,1,input({minutes:20}),stamp),value);
+ value=c.logStrengthCardio(value,3,input({minutes:15}),stamp);assert.equal(Object.keys(value.cardio.sessions).length,2);
+ assert.ok(sanitizeTrackerState(value));assert.deepEqual(parseBackup(serializeBackup(value)),value);
+});

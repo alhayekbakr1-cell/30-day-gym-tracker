@@ -1185,7 +1185,7 @@ export default function GymTracker({
           </aside>
         </section>
 
-        <CardioPanel key={sync.accountChanged ? "signed-out-cardio" : user?.email ?? "guest-cardio"} tracker={tracker} disabled={!progressLoaded || !user || !sync.editable || sync.conflict} saveLabel={sync.storageError ? `${syncLabel} · ${sync.storageError}` : syncLabel} onChange={mutateTracker} />
+        <CardioPanel workoutKey={selectedDay} key={sync.accountChanged ? "signed-out-cardio" : user?.email ?? "guest-cardio"} tracker={tracker} disabled={!progressLoaded || !user || !sync.editable || sync.conflict} saveLabel={sync.storageError ? `${syncLabel} · ${sync.storageError}` : syncLabel} onChange={mutateTracker} />
         <details className="training-tools" id="training-tools" open={toolsOpen} onToggle={event=>setToolsOpen(event.currentTarget.open)}><summary>Plan, progress & tools</summary><div className="training-tools-content">
         <section className={`status-grid ${started ? "has-started" : ""}`} aria-labelledby="hero-title">
           <article className="card hero-card">
