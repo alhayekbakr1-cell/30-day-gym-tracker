@@ -7,7 +7,7 @@ For publishing the source and running automated checks on GitHub, see [GITHUB_DE
 ## Workout experience
 
 - Full sessions and a shorter first-four-exercise option, optional readiness prompts, exercise substitutions, and visual form guides.
-- Focus view with set progress, a next-set shortcut, and an accessible workout skip link.
+- Workout-first home screen with set progress, a next-set shortcut, an accessible skip link, and planning tools on demand.
 - Previous-performance reference cards and **Use last values**, which fills untouched rows, converts units, and leaves completion unchecked.
 - Whole-number reps or seconds are required before checking Done; bodyweight sets may leave load empty.
 - Completed sessions stay read-only until explicitly reopened.
@@ -109,3 +109,5 @@ Optional personal notes attach to equipment/exercise IDs, not prescriptions or h
 Continue workout selects the most recently edited incomplete record, including reopened completed sessions, with remaining sets/exercises and the next set. The last completed set shown is in exercise order; timestamps do not exist per set. Completed records remain labelled complete in history; reopened records are incomplete and must be completed explicitly after editing. Copying prior values never marks Done.
 
 Gemini coaching replies use 1–3 action bullets, targeting 40–80 words (100-word instruction limit), with no routine history recap or generic recovery paragraphs. Unknown recovery data is not interpreted as zero sleep; unchecked entries prompt confirmation rather than a blind repeat. Below-range reps do not automatically justify keeping the same load. Detailed interpretation and progression rules remain in the server prompt.
+
+The landing screen now opens directly to workout logging. Continue workout, current prescription/set rows, a compact rest timer, warm-up checklist and completion controls stay on the workout screen. Session options, readiness, short mode, previous-load details and notes are collapsed. Plan & tools opens calendar, program setup, progress, history, equipment, coaching, recovery and backups without changing stored records. Sync errors, ownership/offline warnings and conflicts remain visible.

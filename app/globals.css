@@ -3641,3 +3641,31 @@ details.card > summary { cursor:pointer; font-weight:650; padding:.3rem; }
 .exercise-options select { max-width:100%; min-width:0; }
 details summary:focus-visible,.history-link:focus-visible { outline:3px solid #245e4d; outline-offset:3px; }
 .equipment-settings p { line-height:1.6; }
+/* Workout-only landing screen; planning tools remain available on demand. */
+.workout-first .content { display:flex; flex-direction:column; gap:16px; }
+.workout-first .content > * { order:0; }
+.workout-home-heading { display:flex; justify-content:space-between; align-items:center; gap:16px; }
+.workout-home-heading h1 { font-size:1.5rem; margin:0; }
+.workout-home-heading > div { display:flex; flex-wrap:wrap; gap:8px; }
+.workout-first .workout-layout { display:block; max-width:960px; width:100%; margin:0 auto; }
+.workout-first .side-column { display:none; }
+.training-tools > summary,.session-options > summary,.workout-warmup > summary,.previous-performance > summary,.workout-notes > summary { cursor:pointer; font-weight:600; padding:12px 0; }
+.training-tools { width:100%; }
+.training-tools-content { display:grid; gap:20px; padding-top:16px; }
+.workout-first .workout-header { margin-top:16px; }
+.workout-first .workout-meta > span { display:none; }
+.session-options,.workout-warmup,.previous-performance,.workout-notes { border-bottom:1px solid var(--border); }
+.workout-first .rest-timer-panel { margin:16px 0; padding:12px; }
+.workout-first .rest-timer-copy > span,.workout-first .rest-timer-copy .eyebrow { display:none; }
+.workout-first .rest-timer-ring { width:64px; height:64px; flex-shrink:0; }
+.workout-first .exercise-info h4 { font-size:1.1rem; }
+.training-tools summary:focus-visible,.session-options summary:focus-visible,.workout-warmup summary:focus-visible,.previous-performance summary:focus-visible { outline:3px solid #245e4d; outline-offset:3px; }
+@media(max-width:760px) {
+ .workout-home-heading { align-items:flex-start; flex-direction:column; }
+ .workout-home-heading > div { width:100%; }
+ .workout-home-heading button { flex:1; min-width:0; }
+ .workout-first .workout-card { padding:16px; }
+ .workout-first .session-toolbar { top:0; }
+ .workout-first .session-tools button:last-child { display:inline-block; }
+ .workout-first .content { padding-bottom:24px; }
+}

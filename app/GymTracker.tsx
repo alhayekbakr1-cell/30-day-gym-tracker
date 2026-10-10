@@ -242,7 +242,7 @@ export default function GymTracker({
   const [scheduleMessage, setScheduleMessage] = useState("");
   const [blockMessage, setBlockMessage] = useState("");
   const [restarting, setRestarting] = useState(false);
-  const [focusMode, setFocusMode] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [sessionMessage, setSessionMessage] = useState("");
   const selectedBlock = useRef<string | null>(null);
   const timerKey = `gym-tracker:timer:${encodeURIComponent(user?.email ?? "guest")}:${tracker.blockId ?? "preview"}:${selectedDay}`;
@@ -255,7 +255,7 @@ export default function GymTracker({
   useEffect(() => {
     const selectionId = `${tracker.blockId}:${tracker.fourDayPlan?.id ?? "legacy"}`;
     if (!progressLoaded || !tracker.blockId || selectedBlock.current === selectionId) return;
-    const day = nextWorkoutDay(tracker);
+    const day = Number(latestIncomplete(tracker) ?? nextWorkoutDay(tracker));
     const date = scheduledDate(tracker, day);
     const timeout = window.setTimeout(() => {
       selectedBlock.current = selectionId;
@@ -339,6 +339,7 @@ export default function GymTracker({
   );
 
   const chooseDay = (day: number, scroll = true) => {
+    setToolsOpen(false);
     setScheduleMessage("");
     setSessionMessage("");
     setSelectedDay(day);
@@ -597,7 +598,7 @@ export default function GymTracker({
             : "Saved across devices";
 
   return (
-    <main className={`site-shell ${focusMode ? "is-focused" : ""}`}>
+    <main className="site-shell workout-first">
       <a className="skip-link" href="#workout-detail">Skip to workout</a>
       <header className="topbar">
         <a className="brand" href="#top" aria-label="Gym Tracker home">
@@ -640,12 +641,550 @@ export default function GymTracker({
 
       <div className="content" id="top">
         <OfflineSupport />
-        <div className="tab-status" role="status">{sync.ownership}{!sync.online && ` · Offline — ${sync.localSaved ? "saved on this device; waiting to sync" : "keep this tab open; device save is not confirmed"}`}</div>
+        {(!sync.editable || !sync.online || sync.accountChanged) && <div className="tab-status" role="status">{sync.ownership}{!sync.online && ` · Offline — ${sync.localSaved ? "saved on this device; waiting to sync" : "keep this tab open; device save is not confirmed"}`}</div>}
         <div className={`save-status ${syncStatus === "error" || sync.storageError ? "needs-attention" : ""}`} role="status">
           <span><strong>{syncLabel}</strong>{sync.storageError ? ` · ${sync.storageError}` : sync.message ? ` · ${sync.message}` : sync.localOnly && user ? " · Preview data stays in this browser." : ""}</span>
           {(syncStatus === "error" || sync.storageError) && <button type="button" onClick={() => void controller.sync()}>Retry save</button>}
           {sync.conflict && sync.editable && <button type="button" onClick={() => { downloadBackup(controller.getSnapshot().state, "gym-tracker-device-draft"); controller.acceptServerPlan(); }}>Export draft & load server plan</button>}
         </div>
+        <div className="workout-home-heading"><h1>Time to train</h1><div><button className="primary-button" disabled={!progressLoaded || restarting || !sync.editable || sync.conflict} type="button" onClick={()=>started ? openSmartWorkout(false) : startChallenge()}>{started ? "Continue workout" : "Start plan"}</button><button className="secondary-button" type="button" onClick={()=>{setToolsOpen(value=>!value);setTimeout(()=>document.getElementById('training-tools')?.scrollIntoView({behavior:'smooth'}),0);}}>Plan & tools</button></div></div>
+        <section className="workout-layout" id="workout-detail" aria-labelledby="workout-title">
+          <article className="card workout-card">
+            <div className="session-toolbar">
+              <div><p className="eyebrow">Session {sessionNumber} · {activeLog.lowSleep ? "Short" : "Full"} workout</p><strong>{activeLog.completed ? "Session complete" : `${session.done} / ${session.total} sets logged`}</strong>{session.next && !activeLog.completed && <span className="session-next">Next: {session.next.name} · set {session.next.setIndex + 1}</span>}</div>
+              <div className="session-tools">
+                {started && !activeLog.completed && session.next && <button type="button" onClick={jumpToNextSet}>Next set ↓</button>}
+              </div>
+              <progress aria-label="Working sets completed" max={session.total} value={session.done} />
+              {(restRunning || restFinished) && <div className="session-rest"><span>{restFinished ? "Rest complete" : `Rest ${formatTimer(restSeconds)}`}</span>{restRunning && <><button type="button" onClick={() => restTimer.addTime(30)}>+30 sec</button><button type="button" onClick={() => restTimer.pause()}>Pause rest</button></>}</div>}
+            </div>
+            <div className="workout-header">
+              <div>
+                <p className="eyebrow">Session {sessionNumber}</p>
+                <h2 id="workout-title">{workout.focus}</h2>
+                <p>
+                  {activeScheduledDate
+                    ? longDate(activeScheduledDate)
+                    : workout.subtitle}
+                </p>
+              </div>
+              <div className="workout-meta">
+                <span>Workout {workoutId}</span>
+                <span>{isFourDaySession ? "45–60 min · allow extra time if needed" : "30–40 min"}</span>
+                <span>{workout.subtitle}</span>
+                <label className="load-unit-control">
+                  <span>Load unit</span>
+                  <select
+                    aria-label="Load unit for this workout"
+                    disabled={!editable || Object.values(activeLog.sets).flat().some((set) => set.done || set.load || set.reps || set.rir)}
+                    value={activeLog.loadUnit}
+                    onChange={(event) => updateWorkout(selectedDay, (log) => ({ ...log, loadUnit: event.target.value === "kg" ? "kg" : "lb" }))}
+                  >
+                    <option value="lb">lb</option>
+                    <option value="kg">kg</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            {activeLog.completed && <div className="session-notice"><span>This session is saved. Reopen it to make changes.</span><button className="secondary-button" disabled={!started || (sync.conflict || !sync.editable)} type="button" onClick={reopenWorkout}>Edit completed session</button></div>}
+            {sessionMessage && <p className="session-notice" role="status">{sessionMessage}</p>}
+
+            <details className="session-options"><summary>Session options · date, readiness & short mode</summary>
+            {started && tracker.startDate && activeScheduledDate && (
+              <div className="schedule-editor">
+                <div>
+                  <strong>Shift changed?</strong>
+                  <span>{isFourDaySession ? "Move this and following sessions together. Upper and lower days may be adjacent." : "Move this session while keeping a full recovery day on both sides."}</span>
+                </div>
+                <div className="schedule-controls">
+                  <button
+                    aria-label="Move workout one day earlier"
+                    disabled={!editable}
+                    type="button"
+                    onClick={() => rescheduleWorkout(isoDateOffset(activeScheduledDate, -1))}
+                  >
+                    −1 day
+                  </button>
+                  <label>
+                    <span className="sr-only">Workout date</span>
+                    <input
+                      disabled={!editable}
+                      min={tracker.startDate}
+                      type="date"
+                      value={activeScheduledDate}
+                      onChange={(event) => rescheduleWorkout(event.target.value)}
+                    />
+                  </label>
+                  <button
+                    aria-label="Move workout one day later"
+                    disabled={!editable}
+                    type="button"
+                    onClick={() => rescheduleWorkout(isoDateOffset(activeScheduledDate, 1))}
+                  >
+                    +1 day
+                  </button>
+                </div>
+                {scheduleMessage && <small role="status">{scheduleMessage}</small>}
+              </div>
+            )}
+
+            {!started && (
+              <div className="start-notice">
+                <strong>Preview mode</strong>
+                <span>Start your plan to check off your warm-up and log sets.</span>
+              </div>
+            )}
+
+            <section className="readiness-panel" aria-labelledby="readiness-title">
+              <div className="readiness-copy">
+                <p className="eyebrow">60-second check-in</p>
+                <h3 id="readiness-title">How ready are you today?</h3>
+                <span>Optional planning prompts based on simple cutoffs, not a validated readiness score.</span>
+              </div>
+              <div className="readiness-fields">
+                <label>
+                  <span>Sleep</span>
+                  <div><input disabled={!editable} inputMode="decimal" max="12" min="0" placeholder="—" type="number" value={activeLog.readiness.sleepHours} onChange={(event) => updateReadiness("sleepHours", event.target.value)} /><b>hours</b></div>
+                </label>
+                <label>
+                  <span>Energy</span>
+                  <select disabled={!editable} value={activeLog.readiness.energy} onChange={(event) => updateReadiness("energy", event.target.value)}>
+                    <option value="">Choose</option>
+                    <option value="1">1 · drained</option>
+                    <option value="2">2 · low</option>
+                    <option value="3">3 · okay</option>
+                    <option value="4">4 · good</option>
+                    <option value="5">5 · excellent</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Soreness</span>
+                  <select disabled={!editable} value={activeLog.readiness.soreness} onChange={(event) => updateReadiness("soreness", event.target.value)}>
+                    <option value="">Choose</option>
+                    <option value="1">1 · none</option>
+                    <option value="2">2 · mild</option>
+                    <option value="3">3 · moderate</option>
+                    <option value="4">4 · high</option>
+                    <option value="5">5 · severe</option>
+                  </select>
+                </label>
+              </div>
+              <div className={`readiness-result ${shouldPostpone ? "postpone" : shouldUseShortMode ? "short" : "ready"}`} aria-live="polite">
+                <div>
+                  <strong>
+                    {shouldPostpone
+                      ? "Consider more recovery today"
+                      : shouldUseShortMode
+                        ? "Consider a shorter session"
+                        : sleepHours || energy || soreness
+                          ? "Full session looks reasonable"
+                          : "Complete the check-in for a recommendation"}
+                  </strong>
+                  <span>
+                    {shouldPostpone
+                      ? "Recovery is the productive choice. Move this session to the next valid day above."
+                      : shouldUseShortMode
+                        ? "Use the first four exercises, up to two sets each, and about 3 reps in reserve."
+                        : "Use the full plan if your warm-up feels normal and pain-free."}
+                  </span>
+                </div>
+                {shouldUseShortMode && !activeLog.lowSleep && (
+                  <button disabled={!editable} type="button" onClick={() => setLowSleep(true)}>Apply short mode</button>
+                )}
+              </div>
+            </section>
+
+            <div className="session-mode">
+              <div>
+                <strong>Short-sleep shift?</strong>
+                <span>
+                  Use the first four exercises with up to two sets each,
+                  keeping about 3 reps in reserve. Keep normal rest periods.
+                </span>
+              </div>
+              <label className="switch-control">
+                <input
+                  type="checkbox"
+                  checked={activeLog.lowSleep}
+                  disabled={!editable}
+                  onChange={toggleLowSleep}
+                />
+                <span aria-hidden="true" />
+                <b>{activeLog.lowSleep ? "Short mode on" : "Full session"}</b>
+              </label>
+            </div>
+
+            </details>
+            <details className="workout-warmup"><summary>Warm-up · {session.warmupDone} / {WARMUP_ITEMS.length} checked</summary>
+            <section className="warmup-panel" aria-labelledby="warmup-title">
+              <div className="warmup-topline">
+                <div>
+                  <p className="eyebrow warm">Before every session</p>
+                  <h3 id="warmup-title">{isFourDaySession ? "Warm-up · allow 5–8 minutes" : "Warm-up · 5 minutes"}</h3>
+                </div>
+                <div className="timer" aria-label="Warm-up timer">
+                  <strong>{formatTimer(warmupSeconds)}</strong>
+                  <button
+                    type="button"
+                    disabled={!started || warmupSeconds === 0}
+                    onClick={() => warmupRunning ? warmupTimer.pause() : warmupTimer.start()}
+                  >
+                    {warmupRunning ? "Pause" : warmupSeconds === 300 ? "Start timer" : "Resume"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!started || warmupSeconds === 300}
+                    onClick={() => warmupTimer.reset()}
+                  >
+                    Reset
+                  </button>
+                </div>
+              </div>
+
+              <div className="warmup-list">
+                {warmupItems.map((item) => (
+                  <label className="warmup-item" key={item.id}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(activeLog.warmup[item.id])}
+                      disabled={!editable}
+                      onChange={() => toggleWarmup(item.id)}
+                    />
+                    <span className="control-check" aria-hidden="true" />
+                    <span>
+                      <strong>{item.label}</strong>
+                      <small>{item.detail}</small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+
+              <div className="warmup-form-grid" aria-label="Warm-up movement guides">
+                {(!isFourDaySession ? WARMUP_ITEMS : []).map((item) => {
+                  const guide = WARMUP_GUIDES[item.id];
+                  if (!guide) return null;
+                  return (
+                    <FormGuide
+                      className="warmup-form-guide"
+                      guide={guide}
+                      key={item.id}
+                      label={`Visual: ${item.label}`}
+                    />
+                  );
+                })}
+              </div>
+            </section>
+
+            </details>
+
+            <section className={`rest-timer-panel ${restFinished ? "is-finished" : ""}`} aria-labelledby="rest-timer-title">
+              <div
+                className="rest-timer-ring"
+                style={{ "--rest-progress": `${restPercent * 3.6}deg` } as CSSProperties}
+                aria-hidden="true"
+              >
+                <strong>{formatTimer(restSeconds)}</strong>
+              </div>
+              <div className="rest-timer-copy">
+                <p className="eyebrow">Automatic between sets</p>
+                <h3 id="rest-timer-title">{restFinished ? "Rest complete—next clean set." : "Rest timer"}</h3>
+                <span>It starts when you finish a set, using the exercise’s rest target. Add time when you need it.</span>
+              </div>
+              <div className="rest-timer-actions">
+                <div className="rest-presets" aria-label="Rest duration">
+                  {[90, 120, 180].map((duration) => (
+                    <button
+                      aria-pressed={restDuration === duration}
+                      className={restDuration === duration ? "is-active" : ""}
+                      key={duration}
+                      type="button"
+                      onClick={() => restTimer.reset(duration)}
+                    >
+                      {duration}s
+                    </button>
+                  ))}
+                </div>
+                <div>
+                  <button
+                    disabled={!editable}
+                    type="button"
+                    onClick={() => restRunning ? restTimer.pause() : restTimer.start()}
+                  >
+                    {restRunning ? "Pause" : "Start"}
+                  </button>
+                  <button
+                    disabled={!started || (restSeconds === restDuration && !restRunning)}
+                    type="button"
+                    onClick={() => restTimer.reset()}
+                  >
+                    Reset
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <div className="pairs-stack">
+              {visiblePairs.map((pair, pairIndex) => (
+                <section className="pair-panel" key={pair.id}>
+                  <div className="pair-heading">
+                    <div>
+                      <span>{pairIndex + 1}</span>
+                      <h3>{pair.title}</h3>
+                    </div>
+                    <small>
+                      {isFourDaySession ? "Straight sets · complete each exercise in order" : "Alternate exercises · keep your rest periods"}
+                    </small>
+                  </div>
+
+                  <div className="exercise-stack">
+                    {pair.exercises.map((exercise, itemIndex) => {
+                      const exerciseIndex = visiblePairs.slice(0, pairIndex).reduce((sum, group) => sum + group.exercises.length, 0) + itemIndex;
+                      const prescription = exercisePrescriptionFor(workoutState, selectedDay, exercise.id, activeLog);
+                      const setCount = prescription.sets;
+                      const exerciseSets = activeLog.sets[exercise.id] ?? [];
+                      const effectiveId =
+                        activeLog.substitutions[exercise.id] ?? exercise.id;
+                      const displayedExercise =
+                        effectiveId === exercise.id ? exercise : EXERCISE_LIBRARY[effectiveId] ?? exercise;
+                      const guide = EXERCISE_GUIDES[effectiveId];
+                      const previous = previousPerformance(
+                        tracker,
+                        selectedDay,
+                        exercise.id,
+                        effectiveId,
+                      );
+                      const recommendation = loadRecommendation(
+                        effectiveId,
+                        previous,
+                        activeLog.loadUnit,
+                        prescription,
+                      );
+                      const substitutionOptions =
+                        equipmentAlternatives(exercise.id, tracker.equipment, Boolean(busySlots[`${selectedDay}:${exercise.id}`]));
+                      const configuredLoads = loadOptions(effectiveId, tracker.equipment, activeLog.loadUnit);
+                      const previousLoad = previous?.sets.at(-1)?.load;
+                      const nextLoad = equipmentProgression(effectiveId, tracker.equipment, activeLog.loadUnit, previousLoad ? convertLoad(Number(previousLoad), previous!.loadUnit, activeLog.loadUnit) : null);
+                      const hasLoggedSet = exerciseSets.some(
+                        (set) => set.done || set.load || set.reps || set.rir,
+                      );
+
+                      return (
+                        <article className="exercise-card" key={exercise.id}>
+                          <div className="exercise-info">
+                            <div>
+                              <span className="exercise-number">{exerciseIndex + 1}</span>
+                              <div>
+                                <h4>{displayedExercise.name}</h4>
+                                <strong>{prescription.reps} · {setCount} sets{!/sec/i.test(prescription.reps) && ` · about ${prescription.rir} RIR`}</strong>
+                              </div>
+                            </div>
+                            <p>{displayedExercise.cue} Rest {prescription.restSeconds / 60} min between sets.</p>
+                            {effectiveId !== exercise.id && <small>Programmed: {exercise.name} · logging: {displayedExercise.name}</small>}
+                            {!availableExercise(effectiveId, tracker.equipment) && <p className="equipment-warning">This movement needs unavailable or unconfirmed equipment. {substitutionOptions[0] ? `Suggested: ${EXERCISE_LIBRARY[substitutionOptions[0]]?.name}.` : 'Defer this movement until suitable equipment is available.'}</p>}
+                            <details className="exercise-options"><summary>Equipment busy / change movement</summary>
+                              <label className="equipment-choice"><input type="checkbox" disabled={!editable || hasLoggedSet} checked={Boolean(busySlots[`${selectedDay}:${exercise.id}`])} onChange={e=>setBusySlots(current=>({...current,[`${selectedDay}:${exercise.id}`]:e.target.checked}))}/>Planned equipment is busy for this visit</label>
+                              <label className="substitution-control"><span>Movement to log</span><select aria-label={`Choose an alternative for ${exercise.name}`} disabled={!editable || hasLoggedSet} value={effectiveId} onChange={e=>setSubstitution(exercise.id,e.target.value)}>
+                                <option value={exercise.id}>Original · {exercise.name}</option>
+                                {effectiveId !== exercise.id && !substitutionOptions.includes(effectiveId) && <option value={effectiveId}>Current · {displayedExercise.name}</option>}
+                                {substitutionOptions.map(id=><option key={id} value={id}>{EXERCISE_LIBRARY[id]?.name} · {MOVEMENT_EMPHASIS[id]??'Different movement'}</option>)}
+                              </select></label>
+                              {hasLoggedSet && <small>Existing set entries lock this movement to protect its identity.</small>}
+                              {!substitutionOptions.length && <p>{exercise.id==='leg-curl'?'No available knee-flexion replacement. An RDL is a hip hinge, not a leg-curl equivalent.':'No suitable available replacement.'} Leave sets unfinished to defer; the workout stays incomplete.</p>}
+                              <p>Required: {(requirements(effectiveId)??[]).map(id=>EQUIPMENT[id]).join(', ')||'No added equipment'}. Returning to the original is available before entering sets.</p>
+                            </details>
+                            <details className="exercise-options"><summary>Setup & load choices</summary><p>{loadConvention(effectiveId)}</p>
+                              {(requirements(effectiveId)??[]).map(id=>tracker.equipment.notes[id]?<p key={id}>My {EQUIPMENT[id]} reminder: {tracker.equipment.notes[id]}</p>:null)}
+                              <label>My exercise reminder<textarea maxLength={500} rows={2} disabled={!sync.editable || sync.conflict} value={tracker.equipment.exerciseNotes[effectiveId]??''} onChange={e=>mutateTracker(current=>({...current,equipment:{...current.equipment,modifiedAt:nowIso(),exerciseNotes:{...current.equipment.exerciseNotes,[effectiveId]:e.target.value}}}))}/></label>
+                              <p>{configuredLoads.length ? `Configured choices: ${configuredLoads.join(', ')} ${activeLog.loadUnit}. They appear as suggestions in the weight field; numeric entry remains available.` : 'Exact load choices not set. Enter a weight directly or configure the rack / stack in My gym equipment.'}</p>
+                            </details>
+                            <button className="history-link" type="button" onClick={()=>{setHistoryId(effectiveId);setHistoryOpen(true);setToolsOpen(true);setTimeout(()=>document.getElementById('exercise-history')?.scrollIntoView({behavior:'smooth'}),0);}}>Past sets</button>
+                          </div>
+
+                          <details className="previous-performance"><summary>Last time & load suggestion</summary><div className={`performance-card ${recommendation.kind}`}>
+                            <div>
+                              <span>Last time</span>
+                              {previous ? (
+                                <div className="previous-sets">
+                                  {previous.sets.map((set, index) => (
+                                    <b key={`${set.load}-${set.reps}-${index}`}>
+                                      {set.load ? `${formatLoad(convertLoad(Number(set.load), previous.loadUnit, activeLog.loadUnit))} ${activeLog.loadUnit} · ` : ""}{set.reps} {/(sec)/i.test(displayedExercise.reps) ? "sec" : "reps"}{set.rir ? ` · ${set.rir} RIR` : ""}
+                                    </b>
+                                  ))}
+                                </div>
+                              ) : (
+                                <strong>No prior set logged</strong>
+                              )}
+                            </div>
+                            <div>
+                              <span>Today&apos;s suggestion</span>
+                              <strong>{effectiveId === "assisted-pullup" ? "Choose assistance for controlled reps at the intended effort. More assistance is easier; no automatic load progression." : recommendation.text}{recommendation.kind === "increase" && nextLoad !== null && effectiveId !== "assisted-pullup" ? ` Smallest configured next load: ${nextLoad} ${activeLog.loadUnit}; use only if the increment is manageable and your load convention matches.` : ""}</strong>
+                            </div>
+                          </div>
+
+                          </details>
+                          <div className="set-table" role="group" aria-label={`${displayedExercise.name} set log`}>
+                            <div className="set-log-help"><span>Enter { /sec/i.test(displayedExercise.reps) ? "seconds" : "reps" } before checking Done. Load is optional for bodyweight sets.</span>{previous && <button type="button" disabled={!editable} onClick={() => { updateWorkout(selectedDay, log => copyPreviousSets(tracker, selectedDay, log, exercise.id, setCount)); setSessionMessage(`Previous values added to empty rows for ${displayedExercise.name}. Log today’s effort before checking Done.`); }}>Use last values</button>}</div>
+                            {configuredLoads.length > 0 && <datalist id={`loads-${exercise.id}`}>{configuredLoads.map(value=><option key={value} value={value}/>)}</datalist>}
+                            <div className="set-head" aria-hidden="true">
+                              <span>Set</span><span>{activeLog.loadUnit}</span><span>{/sec/i.test(displayedExercise.reps) ? "Sec" : "Reps"}</span><span>RIR</span><span>Done</span>
+                            </div>
+                            {Array.from({ length: setCount }, (_, setIndex) => {
+                              const set = exerciseSets[setIndex] ?? blankSet();
+                              const label = `${displayedExercise.name}, set ${setIndex + 1}`;
+                              return (
+                                <div className={`set-row ${set.done ? "is-done" : ""}`} id={`set-${exercise.id}-${setIndex}`} key={setIndex}>
+                                  <strong>{setIndex + 1}</strong>
+                                  <label>
+                                    <span className="sr-only">{label}, weight</span>
+                                    <input
+                                      type="text"
+                                      list={`loads-${exercise.id}`}
+                                      inputMode="decimal"
+                                      maxLength={12}
+                                      placeholder={activeLog.loadUnit}
+                                      aria-invalid={Boolean(set.load && !validSet({ ...set, reps: "1" }))}
+                                      value={set.load}
+                                      disabled={!editable}
+                                      onChange={(event) => updateSet(exercise.id, setIndex, { load: event.target.value })}
+                                    />
+                                  </label>
+                                  <label>
+                                    <span className="sr-only">{label}, repetitions or seconds</span>
+                                    <input
+                                      type="text"
+                                      inputMode="numeric"
+                                      maxLength={12}
+                                      placeholder={/sec/i.test(displayedExercise.reps) ? "sec" : "reps"}
+                                      aria-invalid={Boolean(set.reps && !validSet({ ...set, load: "" }))}
+                                      value={set.reps}
+                                      disabled={!editable}
+                                      onChange={(event) => updateSet(exercise.id, setIndex, { reps: event.target.value })}
+                                    />
+                                  </label>
+                                  <label>
+                                    <span className="sr-only">{label}, repetitions in reserve</span>
+                                    <select
+                                      value={set.rir}
+                                      disabled={!editable}
+                                      onChange={(event) => updateSet(exercise.id, setIndex, { rir: event.target.value })}
+                                    >
+                                      <option value="">—</option>
+                                      <option value="0">0</option>
+                                      <option value="1">1</option>
+                                      <option value="2">2</option>
+                                      <option value="3">3</option>
+                                      <option value="4+">4+</option>
+                                    </select>
+                                  </label>
+                                  <label className="set-check">
+                                    <span className="sr-only">{label}, completed</span>
+                                    <input
+                                      type="checkbox"
+                                      checked={set.done}
+                                      disabled={!editable || (!set.done && !validSet(set))}
+                                      onChange={() =>
+                                        updateSet(
+                                          exercise.id,
+                                          setIndex,
+                                          { done: !set.done },
+                                          prescription.restSeconds,
+                                        )
+                                      }
+                                    />
+                                    <span className="control-check" aria-hidden="true" />
+                                  </label>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {guide && <FormGuide guide={guide} />}
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+            </div>
+
+            <details className="workout-notes"><summary>Session notes</summary>
+            <label className="notes-field">
+              <span>Session notes</span>
+              <textarea
+                rows={3}
+                maxLength={500}
+                value={activeLog.note}
+                disabled={!editable}
+                placeholder="Energy, technique, pain-free adjustments, or what to progress next time…"
+                onChange={(event) =>
+                  updateWorkout(selectedDay, (log) => ({
+                    ...log,
+                    note: event.target.value,
+                  }))
+                }
+              />
+            </label>
+
+            </details>
+            <div className="completion-bar">
+              <div>
+                <strong>
+                  {activeLog.completed
+                    ? "Workout complete"
+                    : readyToComplete
+                      ? "Everything is checked—nice work."
+                      : "Complete the warm-up and working sets first."}
+                </strong>
+                <span>{activeLog.completed ? "Your log is ready for the next session." : `${session.warmupDone} of ${WARMUP_ITEMS.length} warm-up steps · ${session.done} of ${session.total} working sets`}</span>
+              </div>
+              {activeLog.completed ? (
+                <button className="secondary-button" disabled={!started || (sync.conflict || !sync.editable)} type="button" onClick={reopenWorkout}>
+                  Reopen workout
+                </button>
+              ) : (
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={!started || !readyToComplete || (sync.conflict || !sync.editable)}
+                  onClick={completeWorkout}
+                >
+                  Complete workout
+                </button>
+              )}
+            </div>
+          </article>
+
+          <aside className="side-column">
+            <article className="card recovery-card">
+              <span className="moon-mark" aria-hidden="true">☾</span>
+              <div>
+                <p className="eyebrow">Recovery matters</p>
+                <h2>Protect the habit.</h2>
+                <p>
+                  After a short-sleep shift, consider a shorter session and
+                  keep about three repetitions in reserve. Postpone if you feel
+                  unwell or unusually exhausted.
+                </p>
+              </div>
+            </article>
+
+            <article className="card progression-card">
+              <p className="eyebrow">Progression rule</p>
+              <h2>Earn the next weight.</h2>
+              <ol>
+                <li>Reach the top of the rep range on every prescribed set.</li>
+                <li>Keep clean technique and the prescribed reps in reserve.</li>
+                <li>Repeat this in two comparable sessions, then try the smallest practical increase.</li>
+              </ol>
+              <p>
+                {isFourDaySession ? "Volume stays at your chosen dose. Adjust future sets only when technique, performance, and recovery support it." : "Legacy sessions keep their original set counts. Your four-day transition preserves these records."}
+              </p>
+            </article>
+          </aside>
+        </section>
+
+        <details className="training-tools" id="training-tools" open={toolsOpen} onToggle={event=>setToolsOpen(event.currentTarget.open)}><summary>Plan, progress & tools</summary><div className="training-tools-content">
         <section className={`status-grid ${started ? "has-started" : ""}`} aria-labelledby="hero-title">
           <article className="card hero-card">
             <div>
@@ -785,547 +1324,6 @@ export default function GymTracker({
         <details className="card" id="exercise-history" open={historyOpen} onToggle={e=>setHistoryOpen(e.currentTarget.open)}><summary>Past exercise sets</summary>{historyOpen && <ExerciseHistory key={historyId} initialExercise={historyId} tracker={tracker} />}</details>
         <EquipmentSettings profile={tracker.equipment} disabled={!progressLoaded || !sync.editable || sync.conflict} onChange={equipment=>mutateTracker(current=>({...current,equipment}))} />
 
-        <section className="workout-layout" id="workout-detail" aria-labelledby="workout-title">
-          <article className="card workout-card">
-            <div className="session-toolbar">
-              <div><p className="eyebrow">Session {sessionNumber} · {activeLog.lowSleep ? "Short" : "Full"} workout</p><strong>{activeLog.completed ? "Session complete" : `${session.done} / ${session.total} sets logged`}</strong>{session.next && !activeLog.completed && <span className="session-next">Next: {session.next.name} · set {session.next.setIndex + 1}</span>}</div>
-              <div className="session-tools">
-                <button type="button" aria-pressed={focusMode} onClick={() => setFocusMode(value => !value)}>{focusMode ? "Exit focus" : "Focus view"}</button>
-                {started && !activeLog.completed && session.next && <button type="button" onClick={jumpToNextSet}>Next set ↓</button>}
-              </div>
-              <progress aria-label="Working sets completed" max={session.total} value={session.done} />
-              {(restRunning || restFinished) && <div className="session-rest"><span>{restFinished ? "Rest complete" : `Rest ${formatTimer(restSeconds)}`}</span>{restRunning && <><button type="button" onClick={() => restTimer.addTime(30)}>+30 sec</button><button type="button" onClick={() => restTimer.pause()}>Pause rest</button></>}</div>}
-            </div>
-            <div className="workout-header">
-              <div>
-                <p className="eyebrow">Session {sessionNumber}</p>
-                <h2 id="workout-title">{workout.focus}</h2>
-                <p>
-                  {activeScheduledDate
-                    ? longDate(activeScheduledDate)
-                    : workout.subtitle}
-                </p>
-              </div>
-              <div className="workout-meta">
-                <span>Workout {workoutId}</span>
-                <span>{isFourDaySession ? "45–60 min · allow extra time if needed" : "30–40 min"}</span>
-                <span>{workout.subtitle}</span>
-                <label className="load-unit-control">
-                  <span>Load unit</span>
-                  <select
-                    aria-label="Load unit for this workout"
-                    disabled={!editable || Object.values(activeLog.sets).flat().some((set) => set.done || set.load || set.reps || set.rir)}
-                    value={activeLog.loadUnit}
-                    onChange={(event) => updateWorkout(selectedDay, (log) => ({ ...log, loadUnit: event.target.value === "kg" ? "kg" : "lb" }))}
-                  >
-                    <option value="lb">lb</option>
-                    <option value="kg">kg</option>
-                  </select>
-                </label>
-              </div>
-            </div>
-
-            {activeLog.completed && <div className="session-notice"><span>This session is saved. Reopen it to make changes.</span><button className="secondary-button" disabled={!started || (sync.conflict || !sync.editable)} type="button" onClick={reopenWorkout}>Edit completed session</button></div>}
-            {sessionMessage && <p className="session-notice" role="status">{sessionMessage}</p>}
-
-            {started && tracker.startDate && activeScheduledDate && (
-              <div className="schedule-editor">
-                <div>
-                  <strong>Shift changed?</strong>
-                  <span>{isFourDaySession ? "Move this and following sessions together. Upper and lower days may be adjacent." : "Move this session while keeping a full recovery day on both sides."}</span>
-                </div>
-                <div className="schedule-controls">
-                  <button
-                    aria-label="Move workout one day earlier"
-                    disabled={!editable}
-                    type="button"
-                    onClick={() => rescheduleWorkout(isoDateOffset(activeScheduledDate, -1))}
-                  >
-                    −1 day
-                  </button>
-                  <label>
-                    <span className="sr-only">Workout date</span>
-                    <input
-                      disabled={!editable}
-                      min={tracker.startDate}
-                      type="date"
-                      value={activeScheduledDate}
-                      onChange={(event) => rescheduleWorkout(event.target.value)}
-                    />
-                  </label>
-                  <button
-                    aria-label="Move workout one day later"
-                    disabled={!editable}
-                    type="button"
-                    onClick={() => rescheduleWorkout(isoDateOffset(activeScheduledDate, 1))}
-                  >
-                    +1 day
-                  </button>
-                </div>
-                {scheduleMessage && <small role="status">{scheduleMessage}</small>}
-              </div>
-            )}
-
-            {!started && (
-              <div className="start-notice">
-                <strong>Preview mode</strong>
-                <span>Start your plan to check off your warm-up and log sets.</span>
-              </div>
-            )}
-
-            <section className="readiness-panel" aria-labelledby="readiness-title">
-              <div className="readiness-copy">
-                <p className="eyebrow">60-second check-in</p>
-                <h3 id="readiness-title">How ready are you today?</h3>
-                <span>Optional planning prompts based on simple cutoffs, not a validated readiness score.</span>
-              </div>
-              <div className="readiness-fields">
-                <label>
-                  <span>Sleep</span>
-                  <div><input disabled={!editable} inputMode="decimal" max="12" min="0" placeholder="—" type="number" value={activeLog.readiness.sleepHours} onChange={(event) => updateReadiness("sleepHours", event.target.value)} /><b>hours</b></div>
-                </label>
-                <label>
-                  <span>Energy</span>
-                  <select disabled={!editable} value={activeLog.readiness.energy} onChange={(event) => updateReadiness("energy", event.target.value)}>
-                    <option value="">Choose</option>
-                    <option value="1">1 · drained</option>
-                    <option value="2">2 · low</option>
-                    <option value="3">3 · okay</option>
-                    <option value="4">4 · good</option>
-                    <option value="5">5 · excellent</option>
-                  </select>
-                </label>
-                <label>
-                  <span>Soreness</span>
-                  <select disabled={!editable} value={activeLog.readiness.soreness} onChange={(event) => updateReadiness("soreness", event.target.value)}>
-                    <option value="">Choose</option>
-                    <option value="1">1 · none</option>
-                    <option value="2">2 · mild</option>
-                    <option value="3">3 · moderate</option>
-                    <option value="4">4 · high</option>
-                    <option value="5">5 · severe</option>
-                  </select>
-                </label>
-              </div>
-              <div className={`readiness-result ${shouldPostpone ? "postpone" : shouldUseShortMode ? "short" : "ready"}`} aria-live="polite">
-                <div>
-                  <strong>
-                    {shouldPostpone
-                      ? "Consider more recovery today"
-                      : shouldUseShortMode
-                        ? "Consider a shorter session"
-                        : sleepHours || energy || soreness
-                          ? "Full session looks reasonable"
-                          : "Complete the check-in for a recommendation"}
-                  </strong>
-                  <span>
-                    {shouldPostpone
-                      ? "Recovery is the productive choice. Move this session to the next valid day above."
-                      : shouldUseShortMode
-                        ? "Use the first four exercises, up to two sets each, and about 3 reps in reserve."
-                        : "Use the full plan if your warm-up feels normal and pain-free."}
-                  </span>
-                </div>
-                {shouldUseShortMode && !activeLog.lowSleep && (
-                  <button disabled={!editable} type="button" onClick={() => setLowSleep(true)}>Apply short mode</button>
-                )}
-              </div>
-            </section>
-
-            <section className="warmup-panel" aria-labelledby="warmup-title">
-              <div className="warmup-topline">
-                <div>
-                  <p className="eyebrow warm">Before every session</p>
-                  <h3 id="warmup-title">{isFourDaySession ? "Warm-up · allow 5–8 minutes" : "Warm-up · 5 minutes"}</h3>
-                </div>
-                <div className="timer" aria-label="Warm-up timer">
-                  <strong>{formatTimer(warmupSeconds)}</strong>
-                  <button
-                    type="button"
-                    disabled={!started || warmupSeconds === 0}
-                    onClick={() => warmupRunning ? warmupTimer.pause() : warmupTimer.start()}
-                  >
-                    {warmupRunning ? "Pause" : warmupSeconds === 300 ? "Start timer" : "Resume"}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!started || warmupSeconds === 300}
-                    onClick={() => warmupTimer.reset()}
-                  >
-                    Reset
-                  </button>
-                </div>
-              </div>
-
-              <div className="warmup-list">
-                {warmupItems.map((item) => (
-                  <label className="warmup-item" key={item.id}>
-                    <input
-                      type="checkbox"
-                      checked={Boolean(activeLog.warmup[item.id])}
-                      disabled={!editable}
-                      onChange={() => toggleWarmup(item.id)}
-                    />
-                    <span className="control-check" aria-hidden="true" />
-                    <span>
-                      <strong>{item.label}</strong>
-                      <small>{item.detail}</small>
-                    </span>
-                  </label>
-                ))}
-              </div>
-
-              <div className="warmup-form-grid" aria-label="Warm-up movement guides">
-                {(!isFourDaySession ? WARMUP_ITEMS : []).map((item) => {
-                  const guide = WARMUP_GUIDES[item.id];
-                  if (!guide) return null;
-                  return (
-                    <FormGuide
-                      className="warmup-form-guide"
-                      guide={guide}
-                      key={item.id}
-                      label={`Visual: ${item.label}`}
-                    />
-                  );
-                })}
-              </div>
-            </section>
-
-            <div className="session-mode">
-              <div>
-                <strong>Short-sleep shift?</strong>
-                <span>
-                  Use the first four exercises with up to two sets each,
-                  keeping about 3 reps in reserve. Keep normal rest periods.
-                </span>
-              </div>
-              <label className="switch-control">
-                <input
-                  type="checkbox"
-                  checked={activeLog.lowSleep}
-                  disabled={!editable}
-                  onChange={toggleLowSleep}
-                />
-                <span aria-hidden="true" />
-                <b>{activeLog.lowSleep ? "Short mode on" : "Full session"}</b>
-              </label>
-            </div>
-
-            <section className={`rest-timer-panel ${restFinished ? "is-finished" : ""}`} aria-labelledby="rest-timer-title">
-              <div
-                className="rest-timer-ring"
-                style={{ "--rest-progress": `${restPercent * 3.6}deg` } as CSSProperties}
-                aria-hidden="true"
-              >
-                <strong>{formatTimer(restSeconds)}</strong>
-              </div>
-              <div className="rest-timer-copy">
-                <p className="eyebrow">Automatic between sets</p>
-                <h3 id="rest-timer-title">{restFinished ? "Rest complete—next clean set." : "Rest timer"}</h3>
-                <span>It starts when you finish a set, using the exercise’s rest target. Add time when you need it.</span>
-              </div>
-              <div className="rest-timer-actions">
-                <div className="rest-presets" aria-label="Rest duration">
-                  {[90, 120, 180].map((duration) => (
-                    <button
-                      aria-pressed={restDuration === duration}
-                      className={restDuration === duration ? "is-active" : ""}
-                      key={duration}
-                      type="button"
-                      onClick={() => restTimer.reset(duration)}
-                    >
-                      {duration}s
-                    </button>
-                  ))}
-                </div>
-                <div>
-                  <button
-                    disabled={!editable}
-                    type="button"
-                    onClick={() => restRunning ? restTimer.pause() : restTimer.start()}
-                  >
-                    {restRunning ? "Pause" : "Start"}
-                  </button>
-                  <button
-                    disabled={!started || (restSeconds === restDuration && !restRunning)}
-                    type="button"
-                    onClick={() => restTimer.reset()}
-                  >
-                    Reset
-                  </button>
-                </div>
-              </div>
-            </section>
-
-            <div className="form-guide-intro">
-              <span aria-hidden="true">◎</span>
-              <div>
-                <strong>Visual form guides are built in.</strong>
-                <span>
-                  Open the guide under any exercise before your first set. Use
-                  a light practice set—an illustration cannot certify technique
-                  as precisely as an in-person trainer watching you move.
-                </span>
-              </div>
-            </div>
-
-            <div className="pairs-stack">
-              {visiblePairs.map((pair, pairIndex) => (
-                <section className="pair-panel" key={pair.id}>
-                  <div className="pair-heading">
-                    <div>
-                      <span>{pairIndex + 1}</span>
-                      <h3>{pair.title}</h3>
-                    </div>
-                    <small>
-                      {isFourDaySession ? "Straight sets · complete each exercise in order" : "Alternate exercises · keep your rest periods"}
-                    </small>
-                  </div>
-
-                  <div className="exercise-stack">
-                    {pair.exercises.map((exercise, itemIndex) => {
-                      const exerciseIndex = visiblePairs.slice(0, pairIndex).reduce((sum, group) => sum + group.exercises.length, 0) + itemIndex;
-                      const prescription = exercisePrescriptionFor(workoutState, selectedDay, exercise.id, activeLog);
-                      const setCount = prescription.sets;
-                      const exerciseSets = activeLog.sets[exercise.id] ?? [];
-                      const effectiveId =
-                        activeLog.substitutions[exercise.id] ?? exercise.id;
-                      const displayedExercise =
-                        effectiveId === exercise.id ? exercise : EXERCISE_LIBRARY[effectiveId] ?? exercise;
-                      const guide = EXERCISE_GUIDES[effectiveId];
-                      const previous = previousPerformance(
-                        tracker,
-                        selectedDay,
-                        exercise.id,
-                        effectiveId,
-                      );
-                      const recommendation = loadRecommendation(
-                        effectiveId,
-                        previous,
-                        activeLog.loadUnit,
-                        prescription,
-                      );
-                      const substitutionOptions =
-                        equipmentAlternatives(exercise.id, tracker.equipment, Boolean(busySlots[`${selectedDay}:${exercise.id}`]));
-                      const configuredLoads = loadOptions(effectiveId, tracker.equipment, activeLog.loadUnit);
-                      const previousLoad = previous?.sets.at(-1)?.load;
-                      const nextLoad = equipmentProgression(effectiveId, tracker.equipment, activeLog.loadUnit, previousLoad ? convertLoad(Number(previousLoad), previous!.loadUnit, activeLog.loadUnit) : null);
-                      const hasLoggedSet = exerciseSets.some(
-                        (set) => set.done || set.load || set.reps || set.rir,
-                      );
-
-                      return (
-                        <article className="exercise-card" key={exercise.id}>
-                          <div className="exercise-info">
-                            <div>
-                              <span className="exercise-number">{exerciseIndex + 1}</span>
-                              <div>
-                                <h4>{displayedExercise.name}</h4>
-                                <strong>{prescription.reps} · {setCount} sets{!/sec/i.test(prescription.reps) && ` · about ${prescription.rir} RIR`}</strong>
-                              </div>
-                            </div>
-                            <p>{displayedExercise.cue} Rest {prescription.restSeconds / 60} min between sets.</p>
-                            {effectiveId !== exercise.id && <small>Programmed: {exercise.name} · logging: {displayedExercise.name}</small>}
-                            {!availableExercise(effectiveId, tracker.equipment) && <p className="equipment-warning">This movement needs unavailable or unconfirmed equipment. {substitutionOptions[0] ? `Suggested: ${EXERCISE_LIBRARY[substitutionOptions[0]]?.name}.` : 'Defer this movement until suitable equipment is available.'}</p>}
-                            <details className="exercise-options"><summary>Equipment busy / change movement</summary>
-                              <label className="equipment-choice"><input type="checkbox" disabled={!editable || hasLoggedSet} checked={Boolean(busySlots[`${selectedDay}:${exercise.id}`])} onChange={e=>setBusySlots(current=>({...current,[`${selectedDay}:${exercise.id}`]:e.target.checked}))}/>Planned equipment is busy for this visit</label>
-                              <label className="substitution-control"><span>Movement to log</span><select aria-label={`Choose an alternative for ${exercise.name}`} disabled={!editable || hasLoggedSet} value={effectiveId} onChange={e=>setSubstitution(exercise.id,e.target.value)}>
-                                <option value={exercise.id}>Original · {exercise.name}</option>
-                                {effectiveId !== exercise.id && !substitutionOptions.includes(effectiveId) && <option value={effectiveId}>Current · {displayedExercise.name}</option>}
-                                {substitutionOptions.map(id=><option key={id} value={id}>{EXERCISE_LIBRARY[id]?.name} · {MOVEMENT_EMPHASIS[id]??'Different movement'}</option>)}
-                              </select></label>
-                              {hasLoggedSet && <small>Existing set entries lock this movement to protect its identity.</small>}
-                              {!substitutionOptions.length && <p>{exercise.id==='leg-curl'?'No available knee-flexion replacement. An RDL is a hip hinge, not a leg-curl equivalent.':'No suitable available replacement.'} Leave sets unfinished to defer; the workout stays incomplete.</p>}
-                              <p>Required: {(requirements(effectiveId)??[]).map(id=>EQUIPMENT[id]).join(', ')||'No added equipment'}. Returning to the original is available before entering sets.</p>
-                            </details>
-                            <details className="exercise-options"><summary>Setup & load choices</summary><p>{loadConvention(effectiveId)}</p>
-                              {(requirements(effectiveId)??[]).map(id=>tracker.equipment.notes[id]?<p key={id}>My {EQUIPMENT[id]} reminder: {tracker.equipment.notes[id]}</p>:null)}
-                              <label>My exercise reminder<textarea maxLength={500} rows={2} disabled={!sync.editable || sync.conflict} value={tracker.equipment.exerciseNotes[effectiveId]??''} onChange={e=>mutateTracker(current=>({...current,equipment:{...current.equipment,modifiedAt:nowIso(),exerciseNotes:{...current.equipment.exerciseNotes,[effectiveId]:e.target.value}}}))}/></label>
-                              <p>{configuredLoads.length ? `Configured choices: ${configuredLoads.join(', ')} ${activeLog.loadUnit}. They appear as suggestions in the weight field; numeric entry remains available.` : 'Exact load choices not set. Enter a weight directly or configure the rack / stack in My gym equipment.'}</p>
-                            </details>
-                            <button className="history-link" type="button" onClick={()=>{setHistoryId(effectiveId);setHistoryOpen(true);document.getElementById('exercise-history')?.scrollIntoView({behavior:'smooth'});}}>Past sets</button>
-                          </div>
-
-                          <div className={`performance-card ${recommendation.kind}`}>
-                            <div>
-                              <span>Last time</span>
-                              {previous ? (
-                                <div className="previous-sets">
-                                  {previous.sets.map((set, index) => (
-                                    <b key={`${set.load}-${set.reps}-${index}`}>
-                                      {set.load ? `${formatLoad(convertLoad(Number(set.load), previous.loadUnit, activeLog.loadUnit))} ${activeLog.loadUnit} · ` : ""}{set.reps} {/(sec)/i.test(displayedExercise.reps) ? "sec" : "reps"}{set.rir ? ` · ${set.rir} RIR` : ""}
-                                    </b>
-                                  ))}
-                                </div>
-                              ) : (
-                                <strong>No prior set logged</strong>
-                              )}
-                            </div>
-                            <div>
-                              <span>Today&apos;s suggestion</span>
-                              <strong>{effectiveId === "assisted-pullup" ? "Choose assistance for controlled reps at the intended effort. More assistance is easier; no automatic load progression." : recommendation.text}{recommendation.kind === "increase" && nextLoad !== null && effectiveId !== "assisted-pullup" ? ` Smallest configured next load: ${nextLoad} ${activeLog.loadUnit}; use only if the increment is manageable and your load convention matches.` : ""}</strong>
-                            </div>
-                          </div>
-
-                          <div className="set-table" role="group" aria-label={`${displayedExercise.name} set log`}>
-                            <div className="set-log-help"><span>Enter { /sec/i.test(displayedExercise.reps) ? "seconds" : "reps" } before checking Done. Load is optional for bodyweight sets.</span>{previous && <button type="button" disabled={!editable} onClick={() => { updateWorkout(selectedDay, log => copyPreviousSets(tracker, selectedDay, log, exercise.id, setCount)); setSessionMessage(`Previous values added to empty rows for ${displayedExercise.name}. Log today’s effort before checking Done.`); }}>Use last values</button>}</div>
-                            {configuredLoads.length > 0 && <datalist id={`loads-${exercise.id}`}>{configuredLoads.map(value=><option key={value} value={value}/>)}</datalist>}
-                            <div className="set-head" aria-hidden="true">
-                              <span>Set</span><span>{activeLog.loadUnit}</span><span>{/sec/i.test(displayedExercise.reps) ? "Sec" : "Reps"}</span><span>RIR</span><span>Done</span>
-                            </div>
-                            {Array.from({ length: setCount }, (_, setIndex) => {
-                              const set = exerciseSets[setIndex] ?? blankSet();
-                              const label = `${displayedExercise.name}, set ${setIndex + 1}`;
-                              return (
-                                <div className={`set-row ${set.done ? "is-done" : ""}`} id={`set-${exercise.id}-${setIndex}`} key={setIndex}>
-                                  <strong>{setIndex + 1}</strong>
-                                  <label>
-                                    <span className="sr-only">{label}, weight</span>
-                                    <input
-                                      type="text"
-                                      list={`loads-${exercise.id}`}
-                                      inputMode="decimal"
-                                      maxLength={12}
-                                      placeholder={activeLog.loadUnit}
-                                      aria-invalid={Boolean(set.load && !validSet({ ...set, reps: "1" }))}
-                                      value={set.load}
-                                      disabled={!editable}
-                                      onChange={(event) => updateSet(exercise.id, setIndex, { load: event.target.value })}
-                                    />
-                                  </label>
-                                  <label>
-                                    <span className="sr-only">{label}, repetitions or seconds</span>
-                                    <input
-                                      type="text"
-                                      inputMode="numeric"
-                                      maxLength={12}
-                                      placeholder={/sec/i.test(displayedExercise.reps) ? "sec" : "reps"}
-                                      aria-invalid={Boolean(set.reps && !validSet({ ...set, load: "" }))}
-                                      value={set.reps}
-                                      disabled={!editable}
-                                      onChange={(event) => updateSet(exercise.id, setIndex, { reps: event.target.value })}
-                                    />
-                                  </label>
-                                  <label>
-                                    <span className="sr-only">{label}, repetitions in reserve</span>
-                                    <select
-                                      value={set.rir}
-                                      disabled={!editable}
-                                      onChange={(event) => updateSet(exercise.id, setIndex, { rir: event.target.value })}
-                                    >
-                                      <option value="">—</option>
-                                      <option value="0">0</option>
-                                      <option value="1">1</option>
-                                      <option value="2">2</option>
-                                      <option value="3">3</option>
-                                      <option value="4+">4+</option>
-                                    </select>
-                                  </label>
-                                  <label className="set-check">
-                                    <span className="sr-only">{label}, completed</span>
-                                    <input
-                                      type="checkbox"
-                                      checked={set.done}
-                                      disabled={!editable || (!set.done && !validSet(set))}
-                                      onChange={() =>
-                                        updateSet(
-                                          exercise.id,
-                                          setIndex,
-                                          { done: !set.done },
-                                          prescription.restSeconds,
-                                        )
-                                      }
-                                    />
-                                    <span className="control-check" aria-hidden="true" />
-                                  </label>
-                                </div>
-                              );
-                            })}
-                          </div>
-
-                          {guide && <FormGuide guide={guide} />}
-                        </article>
-                      );
-                    })}
-                  </div>
-                </section>
-              ))}
-            </div>
-
-            <label className="notes-field">
-              <span>Session notes</span>
-              <textarea
-                rows={3}
-                maxLength={500}
-                value={activeLog.note}
-                disabled={!editable}
-                placeholder="Energy, technique, pain-free adjustments, or what to progress next time…"
-                onChange={(event) =>
-                  updateWorkout(selectedDay, (log) => ({
-                    ...log,
-                    note: event.target.value,
-                  }))
-                }
-              />
-            </label>
-
-            <div className="completion-bar">
-              <div>
-                <strong>
-                  {activeLog.completed
-                    ? "Workout complete"
-                    : readyToComplete
-                      ? "Everything is checked—nice work."
-                      : "Complete the warm-up and working sets first."}
-                </strong>
-                <span>{activeLog.completed ? "Your log is ready for the next session." : `${session.warmupDone} of ${WARMUP_ITEMS.length} warm-up steps · ${session.done} of ${session.total} working sets`}</span>
-              </div>
-              {activeLog.completed ? (
-                <button className="secondary-button" disabled={!started || (sync.conflict || !sync.editable)} type="button" onClick={reopenWorkout}>
-                  Reopen workout
-                </button>
-              ) : (
-                <button
-                  className="primary-button"
-                  type="button"
-                  disabled={!started || !readyToComplete || (sync.conflict || !sync.editable)}
-                  onClick={completeWorkout}
-                >
-                  Complete workout
-                </button>
-              )}
-            </div>
-          </article>
-
-          <aside className="side-column">
-            <article className="card recovery-card">
-              <span className="moon-mark" aria-hidden="true">☾</span>
-              <div>
-                <p className="eyebrow">Recovery matters</p>
-                <h2>Protect the habit.</h2>
-                <p>
-                  After a short-sleep shift, consider a shorter session and
-                  keep about three repetitions in reserve. Postpone if you feel
-                  unwell or unusually exhausted.
-                </p>
-              </div>
-            </article>
-
-            <article className="card progression-card">
-              <p className="eyebrow">Progression rule</p>
-              <h2>Earn the next weight.</h2>
-              <ol>
-                <li>Reach the top of the rep range on every prescribed set.</li>
-                <li>Keep clean technique and the prescribed reps in reserve.</li>
-                <li>Repeat this in two comparable sessions, then try the smallest practical increase.</li>
-              </ol>
-              <p>
-                {isFourDaySession ? "Volume stays at your chosen dose. Adjust future sets only when technique, performance, and recovery support it." : "Legacy sessions keep their original set counts. Your four-day transition preserves these records."}
-              </p>
-            </article>
-          </aside>
-        </section>
-
         <details className="card"><summary>Ask Gemini for a training review</summary><GeminiCoach key={sync.accountChanged ? "signed-out" : user?.email ?? "guest"} email={sync.accountChanged ? null : user?.email ?? null} controller={controller} enabled={progressLoaded && sync.editable && sync.online && !isPreviewUser} /></details>
         {user && progressLoaded && <DeviceDrafts base={sync.recoveryBase} />}
         <CoachPanel ready={progressLoaded} signedIn={Boolean(user)} tracker={tracker} />
@@ -1354,6 +1352,7 @@ export default function GymTracker({
           tracker={tracker}
           user={user}
         />
+        </div></details>
       </div>
 
       <div className="sr-only" aria-live="polite">
