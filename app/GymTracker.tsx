@@ -13,6 +13,8 @@ import AppTools from "./AppTools";
 import CoachPanel from "./CoachPanel";
 import ProgramIntelligence from "./ProgramIntelligence";
 import FourDaySetup from "./FourDaySetup";
+import TrainingCycleSettings from "./TrainingCycleSettings";
+import { activateTrainingCycle } from "./training-cycle";
 import { FOUR_DAY_KEY_START, initialFourDaySets, isFourDayKey } from "./four-day-data";
 import ProgressDashboard from "./ProgressDashboard";
 import CardioPanel from "./CardioPanel";
@@ -1285,6 +1287,16 @@ export default function GymTracker({
           onActivate={activateFourDays}
           onSets={(template, slot, count) => mutateTracker(current => changeFourDaySets(current, template, slot, count))}
           onEffort={rir => mutateTracker(current => current.fourDayPlan ? { ...current, fourDayPlan: { ...current.fourDayPlan, rir, modifiedAt: nowIso() } } : current)} />}
+
+        {started && <TrainingCycleSettings tracker={tracker} disabled={!progressLoaded || restarting || sync.conflict || !sync.editable}
+          onEnable={async date => {
+            if (!await controller.sync(true)) throw new Error("Wait for Saved across devices before changing future workouts.");
+            const current = controller.getSnapshot().state;
+            downloadBackup(current, "gym-tracker-before-variety");
+            mutateTracker(() => activateTrainingCycle(current, date, crypto.randomUUID()));
+            if (!await controller.sync(false)) throw new Error("Your future plan is saved on this device and waiting to sync. Keep this tab open and check the save status.");
+          }}
+          onPause={() => mutateTracker(current => current.trainingCycle ? { ...current, trainingCycle: { ...current.trainingCycle, enabled: false, modifiedAt: nowIso() } } : current)} />}
 
         <section className="card calendar-card" id="calendar" aria-labelledby="calendar-title">
           <div className="section-heading calendar-heading">

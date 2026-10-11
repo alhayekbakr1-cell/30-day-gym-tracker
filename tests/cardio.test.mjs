@@ -64,7 +64,7 @@ test('weekly summary counts actual local dates/minutes only; past weeks and warm
  const warmupOnly=state();warmupOnly.workouts[1].warmup.cardio=true;assert.equal(logic.normalizeTrackerState(warmupOnly).cardio,null);
 });
 test('schema 5/6/7 backups migrate without opt-in; schema 8 cardio round-trips and malformed values fail strictly',()=>{
- for(const version of [5,6,7]){const old=state();old.schemaVersion=version;delete old.cardio;if(version<7)delete old.equipment;const restored=parseBackup(JSON.stringify(old));assert.equal(restored.schemaVersion,8);assert.equal(restored.cardio,null);assert.deepEqual(restored.workouts,old.workouts);}
+ for(const version of [5,6,7]){const old=state();old.schemaVersion=version;delete old.cardio;if(version<7)delete old.equipment;const restored=parseBackup(JSON.stringify(old));assert.equal(restored.schemaVersion,9);assert.equal(restored.cardio,null);assert.deepEqual(restored.workouts,old.workouts);}
  const valid=c.logCardio(enabled(),rows(enabled())[0],input({note:'Private cardio note',effort:'moderate'}),stamp);assert.deepEqual(parseBackup(serializeBackup(valid)),valid);
  const invalidMutations=[v=>v.cardio.plan.preferred=['rower'],v=>v.cardio.plan.minutesPerSession=0,v=>v.cardio.plan.sessionsPerWeek=8,v=>v.cardio.plan.available=[],v=>v.cardio.plan.extra='drop',v=>Object.values(v.cardio.sessions)[0].modality='rower',v=>Object.values(v.cardio.sessions)[0].minutes=-1,v=>Object.values(v.cardio.sessions)[0].minutes=0,v=>Object.values(v.cardio.sessions)[0].minutes=Infinity,v=>Object.values(v.cardio.sessions)[0].date='2026-02-30',v=>Object.values(v.cardio.sessions)[0].id='wrong',v=>Object.values(v.cardio.sessions)[0].effort='unknown',v=>Object.values(v.cardio.sessions)[0].note='x'.repeat(501),v=>Object.values(v.cardio.opportunities)[0].week='2026-10-07',v=>Object.values(v.cardio.opportunities)[0].plannedDate='not-date',v=>Object.values(v.cardio.sessions)[0].opportunityId='missing',v=>delete v.cardio];
  for(const mutate of invalidMutations){const bad=structuredClone(valid);mutate(bad);assert.equal(sanitizeTrackerState(bad),null);assert.throws(()=>parseBackup(JSON.stringify(bad)));}
@@ -89,8 +89,8 @@ test('late reads and in-flight write acknowledgements preserve newer cardio and 
 });
 test('actual atomic SQL protects cardio from older clients and enforces account/version match',()=>{
  const sql=readFileSync(new URL('../lib/progress-store.ts',import.meta.url),'utf8').match(/"(UPDATE gym_progress SET state_json = .*?json_extract.*?)"/)[1],db=new DatabaseSync(':memory:');try{db.exec('CREATE TABLE gym_progress(user_email TEXT PRIMARY KEY,state_json TEXT,version INTEGER,updated_at INTEGER)');db.prepare('INSERT INTO gym_progress VALUES(?,?,1,1)').run('owner',JSON.stringify(enabled()));
- for(const version of [5,6,7])assert.equal(db.prepare(sql).run(JSON.stringify({...state(),cardio:undefined,schemaVersion:version}),2,2,'owner',1,version,version,version).changes,0);
- assert.equal(db.prepare(sql).run(JSON.stringify(enabled()),2,2,'other',1,8,8,8).changes,0);assert.equal(db.prepare(sql).run(JSON.stringify(enabled()),2,2,'owner',1,8,8,8).changes,1);assert.equal(db.prepare(sql).run(JSON.stringify(enabled()),3,3,'owner',1,8,8,8).changes,0);
+ for(const version of [5,6,7])assert.equal(db.prepare(sql).run(JSON.stringify({...state(),cardio:undefined,schemaVersion:version}),2,2,'owner',1,version,version,version,version).changes,0);
+ assert.equal(db.prepare(sql).run(JSON.stringify(enabled()),2,2,'other',1,9,9,9,9).changes,0);assert.equal(db.prepare(sql).run(JSON.stringify(enabled()),2,2,'owner',1,9,9,9,9).changes,1);assert.equal(db.prepare(sql).run(JSON.stringify(enabled()),3,3,'owner',1,9,9,9,9).changes,0);
  }finally{db.close();}
 });
 test('account recovery keys and Gemini cardio context omit notes, IDs and unconfirmed machines',async t=>{

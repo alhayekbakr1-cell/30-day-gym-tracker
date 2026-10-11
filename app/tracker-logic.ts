@@ -9,9 +9,9 @@ export const EMPTY_PROFILE: ProfileSettings = {
   loadUnit: "lb", modifiedAt: ZERO_DATE, proteinGoal: "", stepGoal: "7000", weightUnit: "lb",
 };
 export const EMPTY_STATE: TrackerState = {
-  fourDayPlan: null, cardio: null, equipment: defaultEquipment(),
+  fourDayPlan: null, trainingCycle: null, cardio: null, equipment: defaultEquipment(),
   blockId: null, dailyMetrics: {}, programVersion: 3, profile: EMPTY_PROFILE, schedule: {},
-  scheduleModifiedAt: ZERO_DATE, schemaVersion: 8, startDate: null, workouts: {},
+  scheduleModifiedAt: ZERO_DATE, schemaVersion: 9, startDate: null, workouts: {},
 };
 
 export function localIsoDate(date = new Date()) {
@@ -54,7 +54,8 @@ export function normalizeTrackerState(value: Partial<TrackerState> | null | unde
     date, { ...metric, weightUnit: metric.weightUnit ?? profile.weightUnit },
   ]));
   return {
-    blockId: value.blockId ?? startDate, dailyMetrics, programVersion: 3, profile, workouts, startDate, schemaVersion: 8,
+    blockId: value.blockId ?? startDate, dailyMetrics, programVersion: 3, profile, workouts, startDate, schemaVersion: 9,
+    trainingCycle: value.trainingCycle ?? null,
     fourDayPlan: value.fourDayPlan ?? null, cardio: value.cardio ?? null, equipment: value.equipment ?? defaultEquipment(),
     schedule: value.schedule && Object.keys(value.schedule).length > 0 ? value.schedule : defaultSchedule(),
     scheduleModifiedAt: value.scheduleModifiedAt ?? ZERO_DATE,
@@ -154,7 +155,7 @@ export function suggestedFourDayStart(state: TrackerState, today = localIsoDate(
 export function activateFourDayPlan(state: TrackerState, startsOn: string, id: string, now = new Date().toISOString(), today = localIsoDate()): TrackerState {
   if (state.fourDayPlan) throw new Error("Your four-day plan is already active.");
   if (!state.startDate || !isIsoDate(startsOn) || startsOn < earliestFourDayStart(state, today)) throw new Error("Choose a date at least two days after your latest saved workout, and no earlier than today.");
-  return { ...state, schemaVersion: 8, fourDayPlan: { id, version: 1, startsOn, modifiedAt: now, sets: initialFourDaySets(), rir: 3, shifts: {} } };
+  return { ...state, schemaVersion: 9, fourDayPlan: { id, version: 1, startsOn, modifiedAt: now, sets: initialFourDaySets(), rir: 3, shifts: {} } };
 }
 export function changeFourDaySets(state: TrackerState, template: FourDayWorkoutId, slot: string, count: number, now = new Date().toISOString()): TrackerState {
   const plan = state.fourDayPlan;
@@ -340,6 +341,9 @@ export function mergeTrackerStates(remoteValue: TrackerState | null, localValue:
   const localProfileIsNewer = Date.parse(local.profile.modifiedAt) > Date.parse(remote.profile.modifiedAt);
   return {
     blockId: remote.blockId, dailyMetrics, programVersion: 3,
+    trainingCycle: same(local.trainingCycle, base?.trainingCycle) ? remote.trainingCycle
+      : same(remote.trainingCycle, base?.trainingCycle) ? local.trainingCycle
+        : Date.parse(local.trainingCycle?.modifiedAt ?? ZERO_DATE) > Date.parse(remote.trainingCycle?.modifiedAt ?? ZERO_DATE) ? local.trainingCycle : remote.trainingCycle,
     fourDayPlan: same(local.fourDayPlan, base?.fourDayPlan) ? remote.fourDayPlan
       : same(remote.fourDayPlan, base?.fourDayPlan) ? local.fourDayPlan
         : Date.parse(local.fourDayPlan?.modifiedAt ?? ZERO_DATE) > Date.parse(remote.fourDayPlan?.modifiedAt ?? ZERO_DATE) ? local.fourDayPlan : remote.fourDayPlan,
@@ -348,6 +352,6 @@ export function mergeTrackerStates(remoteValue: TrackerState | null, localValue:
     profile: base ? mergeFields(remote.profile, local.profile, base.profile, localProfileIsNewer) : localProfileIsNewer ? local.profile : remote.profile,
     schedule: base ? mergeFields(remote.schedule, local.schedule, base.schedule, localScheduleIsNewer) : localScheduleIsNewer ? local.schedule : remote.schedule,
     scheduleModifiedAt: localScheduleIsNewer ? local.scheduleModifiedAt : remote.scheduleModifiedAt,
-    schemaVersion: 8, startDate: remote.startDate, workouts,
+    schemaVersion: 9, startDate: remote.startDate, workouts,
   };
 }

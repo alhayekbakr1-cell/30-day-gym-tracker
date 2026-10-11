@@ -31,9 +31,10 @@ export default function ProgramIntelligence({ tracker }: { tracker: TrackerState
     </div>
     <section className="muscle-priority" aria-labelledby="muscle-priority-title"><div><strong id="muscle-priority-title">Working sets per four-session cycle</strong><span>{tracker.fourDayPlan ? "Chosen dose / eventual target" : "Starting dose / eventual target"}. Targets guide gradual progression; they are not minimum requirements.</span></div>
       <div className="muscle-bars">{[...allocation].map(([group, value]) => <div key={group}><span>{group}</span><i aria-hidden="true"><b style={{ width: `${value.current / value.target * 100}%` }} /></i><strong>{value.current}/{value.target}</strong></div>)}</div>
+      {tracker.trainingCycle?.enabled && <p>These show your configured base dose. Future prescriptions may advance within these caps at two-month checkpoints; substitutions can change the muscle emphasis. Each workout shows its actual saved dose.</p>}
       <p>These are direct set counts. Pressing also involves triceps and front shoulders; pulling involves biceps; leg presses, split squats, and hinges also train glutes. Supporting work is not counted as a full extra set.</p>
     </section>
-    <div className="program-insight-grid"><article className="phase-ladder"><div className="insight-title"><div><strong>Progress at your pace</strong><small>Set counts never rise automatically</small></div></div><ol>
+    <div className="program-insight-grid"><article className="phase-ladder"><div className="insight-title"><div><strong>Progress at your pace</strong><small>{tracker.trainingCycle?.enabled ? "Two-month checkpoints with performance gates" : "Set counts never rise automatically"}</small></div></div><ol>
       <li><span>Transition</span><strong>Find your dose</strong><small>Start with 43 weekly working sets and about 3 RIR.</small></li>
       <li><span>Repeat</span><strong>Build clean reps</strong><small>Keep technique and recovery consistent.</small></li>
       <li><span>Progress</span><strong>Make one change</strong><small>Add reps or a small load increase; add sets gradually.</small></li>

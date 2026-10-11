@@ -107,7 +107,7 @@ export async function writeProgress(
   userEmail: string,
   state: TrackerState,
   baseVersion: number,
-  inputSchemaVersion = 8,
+  inputSchemaVersion = 9,
 ): Promise<{ conflict: boolean; progress: SyncedProgress }> {
   const db = await database();
   const updatedAt = Date.now();
@@ -132,9 +132,9 @@ export async function writeProgress(
     const nextVersion = baseVersion + 1;
     const result = await db
       .prepare(
-        "UPDATE gym_progress SET state_json = ?, version = ?, updated_at = ? WHERE user_email = ? AND version = ? AND (? >= 6 OR json_extract(state_json, '$.fourDayPlan') IS NULL) AND (? >= 7 OR json_extract(state_json, '$.equipment') IS NULL) AND (? >= 8 OR json_extract(state_json, '$.cardio') IS NULL)",
+        "UPDATE gym_progress SET state_json = ?, version = ?, updated_at = ? WHERE user_email = ? AND version = ? AND (? >= 6 OR json_extract(state_json, '$.fourDayPlan') IS NULL) AND (? >= 7 OR json_extract(state_json, '$.equipment') IS NULL) AND (? >= 8 OR json_extract(state_json, '$.cardio') IS NULL) AND (? >= 9 OR COALESCE(json_extract(state_json, '$.schemaVersion'), 5) < 9)",
       )
-      .bind(stateJson, nextVersion, updatedAt, userEmail, baseVersion, inputSchemaVersion, inputSchemaVersion, inputSchemaVersion)
+      .bind(stateJson, nextVersion, updatedAt, userEmail, baseVersion, inputSchemaVersion, inputSchemaVersion, inputSchemaVersion, inputSchemaVersion)
       .run();
 
     if (Number(result.meta.changes ?? 0) > 0) {
@@ -177,6 +177,7 @@ export async function startNewChallenge(
   const nextState: TrackerState = {
     ...current.state,
     blockId: crypto.randomUUID(),
+    trainingCycle: null,
     programVersion: 3,
     fourDayPlan: { id: crypto.randomUUID(), version: 1, startsOn: startDate, modifiedAt: new Date(archivedAt).toISOString(), sets: initialFourDaySets(), rir: 3, shifts: {} },
     schedule: defaultSchedule(),

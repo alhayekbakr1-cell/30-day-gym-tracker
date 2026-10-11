@@ -8,6 +8,9 @@ export type EquipmentProfile = { modifiedAt: string; available: Record<Equipment
 const known = ['dumbbells','bench','pulldown','lowCable','legPress','legCurl','legExtension','smith','pullup','kettlebells'];
 export function defaultEquipment(): EquipmentProfile { return { modifiedAt: new Date(0).toISOString(), available: Object.fromEntries(Object.keys(EQUIPMENT).map(id => [id, known.includes(id)])) as EquipmentProfile['available'], loadsKg: {}, notes: {}, exerciseNotes: {}, futureUpperBFlat: false }; }
 export const REQUIREMENTS: Record<string, EquipmentId[]> = {
+  'db-supinated-curl':['dumbbells'],'incline-db-curl':['dumbbells','bench'],'concentration-curl':['dumbbells','bench'],
+  'lying-db-triceps':['dumbbells','bench'],'single-arm-overhead-triceps':['dumbbells'],
+  'chest-supported-rear-delt-fly':['dumbbells','bench'],'standing-db-lateral-raise':['dumbbells'],'side-plank':[],'bird-dog':[],
   'flat-db-bench':['dumbbells','bench'],'incline-db-bench':['dumbbells','bench'],'machine-press':['chestPress'],'db-rdl':['dumbbells'],'db-hip-thrust':['dumbbells','bench'],'one-arm-row':['dumbbells','bench'],'seated-row':['lowCable'],'lat-pulldown':['pulldown'],'leg-press':['legPress'],'leg-curl':['legCurl'],'split-squat':['dumbbells','bench'],'lateral-raise-a':['dumbbells'],'hammer-curl':['dumbbells'],'triceps-extension':['dumbbells'],'calf-raise':['dumbbells'],'front-plank':[],'dead-bug':[],'cable-crunch':['highCable'],'assisted-pullup':['pullup'],'smith-squat':['smith'],'leg-extension':['legExtension'],'leg-press-calf':['legPress'],
 };
 export function requirements(id: string) { return REQUIREMENTS[canonicalExerciseId(id)] ?? null; }

@@ -3870,3 +3870,14 @@ details summary:focus-visible,.history-link:focus-visible { outline:3px solid #2
  .cardio-inline-meta { margin:4px 14px 6px; }
  .cardio-bottom { padding:0 14px 10px; }
 }
+
+.training-cycle-settings { scroll-margin-top: 24px; }
+.training-cycle-settings > p, .training-cycle-settings details { color: var(--muted); font-size: 14px; line-height: 1.6; }
+.training-cycle-settings details { margin: 16px 0; border-top: 1px solid var(--divider); }
+.training-cycle-settings summary { cursor: pointer; min-height: 48px; display: flex; align-items: center; font-weight: 700; color: var(--ink); }
+.training-cycle-settings ul { padding-left: 22px; }
+.training-cycle-settings li { margin-bottom: 10px; }
+.training-cycle-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; margin-top: 16px; }
+.training-cycle-actions label { display: grid; gap: 6px; font-size: 13px; }
+.training-cycle-actions input { min-height: 48px; max-width: 100%; font-size: 16px; }
+.training-cycle-footnote { font-size: 12px !important; }

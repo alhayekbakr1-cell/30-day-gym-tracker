@@ -45,6 +45,7 @@ export type DailyMetric = {
 };
 
 export type TrackerState = {
+  trainingCycle: import("./training-cycle").TrainingCycle | null;
   fourDayPlan: import("./four-day-data").FourDayPlan | null;
   blockId: string | null;
   dailyMetrics: Record<string, DailyMetric>;
@@ -52,7 +53,7 @@ export type TrackerState = {
   profile: ProfileSettings;
   schedule: Record<string, string>;
   scheduleModifiedAt: string;
-  schemaVersion: 8;
+  schemaVersion: 9;
   cardio: import("./cardio-logic").CardioState | null;
   equipment: import("./equipment-logic").EquipmentProfile;
   startDate: string | null;

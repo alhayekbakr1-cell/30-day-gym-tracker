@@ -1,4 +1,5 @@
 import { FOUR_DAY_WORKOUTS, type FourDayWorkoutId } from "./four-day-data";
+import { VARIETY_EXERCISES } from "./variety-exercises";
 export type WorkoutId = "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K" | "L" | FourDayWorkoutId;
 export type ProgramVersion = 1 | 2 | 3;
 
@@ -450,6 +451,7 @@ export const EXERCISE_LIBRARY: Record<string, Exercise> = Object.fromEntries(
 );
 
 Object.assign(EXERCISE_LIBRARY, {
+  ...VARIETY_EXERCISES,
   "assisted-pullup": { id: "assisted-pullup", name: "Assisted pull-up", reps: "6–10 reps", cue: "Use comfortable assistance and a controlled range; stop if the setup is unsuitable." },
   "smith-squat": { id: "smith-squat", name: "Smith squat", reps: "8–12 reps", cue: "Use a comfortable stance and range with the machine safety stops set." },
   "leg-extension": { id: "leg-extension", name: "Leg extension", reps: "10–15 reps", cue: "Use a comfortable range and control both directions." },
@@ -457,6 +459,10 @@ Object.assign(EXERCISE_LIBRARY, {
 });
 
 export const EXERCISE_SUBSTITUTIONS: Record<string, readonly string[]> = {
+  "hammer-curl": ["db-supinated-curl", "incline-db-curl", "concentration-curl"],
+  "triceps-extension": ["lying-db-triceps", "single-arm-overhead-triceps"],
+  "lateral-raise-a": ["standing-db-lateral-raise", "chest-supported-rear-delt-fly"],
+  "lateral-raise-c": ["standing-db-lateral-raise", "chest-supported-rear-delt-fly"],
   "leg-press": ["split-squat"],
   "flat-db-bench": ["machine-press", "incline-db-bench"],
   "db-rdl": [],
@@ -469,10 +475,16 @@ export const EXERCISE_SUBSTITUTIONS: Record<string, readonly string[]> = {
   "machine-press": ["flat-db-bench", "incline-db-bench"],
   "db-hip-thrust": [],
   "one-arm-row": ["seated-row", "lat-pulldown"],
-  "front-plank": [],
+  "front-plank": ["side-plank", "dead-bug", "bird-dog"],
   "dead-bug": ["front-plank", "cable-crunch"],
   "cable-crunch": ["dead-bug", "front-plank"],
 };
+for (const group of [
+  ["hammer-curl", "db-supinated-curl", "incline-db-curl", "concentration-curl"],
+  ["triceps-extension", "lying-db-triceps", "single-arm-overhead-triceps"],
+  ["lateral-raise-a", "lateral-raise-c", "standing-db-lateral-raise", "chest-supported-rear-delt-fly"],
+  ["front-plank", "dead-bug", "cable-crunch", "side-plank", "bird-dog"],
+]) for (const id of group) EXERCISE_SUBSTITUTIONS[id] = [...new Set([...(EXERCISE_SUBSTITUTIONS[id] ?? []), ...group.filter(other => other !== id)])];
 
 export function workoutIdForDay(
   day: number,

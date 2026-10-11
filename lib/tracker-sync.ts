@@ -55,7 +55,7 @@ export class TrackerSync {
       const raw = this.storage().getItem(this.key);
       if (raw) {
         const cache = JSON.parse(raw) as Cache;
-        const state = cache.format === 1 && [5, 6, 7, 8].includes(cache.state?.schemaVersion) ? sanitizeTrackerState(cache.state) : null;
+        const state = cache.format === 1 && [5, 6, 7, 8, 9].includes(cache.state?.schemaVersion) ? sanitizeTrackerState(cache.state) : null;
         if (!state || !Number.isSafeInteger(cache.version) || cache.version < 0) throw new Error("Invalid recovery data");
         this.base = cache.base ? normalizeTrackerState(sanitizeTrackerState(cache.base)) : null;
         this.replacement = cache.replacement === true;
@@ -118,7 +118,8 @@ export class TrackerSync {
     const serverChangedPlan = this.base
       ? remote.blockId !== this.base.blockId || remote.startDate !== this.base.startDate
       : Boolean(remote.startDate && local.startDate);
-    const serverChangedProgram = !equal(remote.fourDayPlan, local.fourDayPlan) && !equal(remote.fourDayPlan, this.base?.fourDayPlan ?? null);
+    const serverChangedProgram = (!equal(remote.fourDayPlan, local.fourDayPlan) && !equal(remote.fourDayPlan, this.base?.fourDayPlan ?? null))
+      || (!equal(remote.trainingCycle, local.trainingCycle) && !equal(remote.trainingCycle, this.base?.trainingCycle ?? null));
     const transitionOverlapsNewHistory = local.fourDayPlan && !remote.fourDayPlan && remote.startDate
       && local.fourDayPlan.startsOn < earliestFourDayStart(remote, remote.startDate);
     if (this.snapshot.pending && !sent && (
