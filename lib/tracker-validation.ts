@@ -1,3 +1,6 @@
+import { cleanCardio } from "../app/cardio-logic";
+import { cleanTrainingCycle, type TrainingCycle } from "../app/training-cycle";
+import { cleanEquipment, defaultEquipment } from "../app/equipment-logic";
 import type {
   DailyMetric,
   ProfileSettings,
@@ -9,15 +12,11 @@ import type {
 import type { WorkoutId } from "../app/workout-data";
 import { dayDifference, isIsoDate, scheduledDate } from "../app/tracker-logic";
 import { validSet } from "../app/session-logic";
-import { isTrainingDayNumber, WARMUP_ITEMS, WORKOUTS, workoutIdForDay } from "../app/workout-data";
+import { isTrainingDayNumber, EXERCISE_LIBRARY, WARMUP_ITEMS, WORKOUTS, workoutIdForDay } from "../app/workout-data";
 import { FOUR_DAY_EXERCISES, FOUR_DAY_ROTATION, FOUR_DAY_KEY_START, fourDayWorkoutId, isFourDayKey, type FourDayPlan, type FourDaySets, type SessionPrescription } from "../app/four-day-data";
 
 const allowedWarmups = new Set<string>(WARMUP_ITEMS.map((item) => item.id));
-const allowedExercises = new Set(
-  Object.values(WORKOUTS).flatMap((workout) =>
-    workout.pairs.flatMap((pair) => pair.exercises.map((exercise) => exercise.id)),
-  ),
-);
+const allowedExercises = new Set(Object.keys(EXERCISE_LIBRARY));
 const allowedWorkoutIds = new Set(Object.keys(WORKOUTS));
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -166,9 +165,32 @@ function cleanPrescription(value: unknown, key: number, plan: FourDayPlan): Sess
   return { program: 4, templateVersion: 1, sessionId: `${plan.id}:${key}`, exercises };
 }
 
+function cleanVarietyPrescription(value: unknown, key: number, cycle: TrainingCycle, blockId: string | null, workout: WorkoutLog): SessionPrescription | null {
+  if (!isRecord(value) || value.program !== "variety" || value.templateVersion !== 1 || value.sessionId !== `${blockId}:${key}`
+    || value.cycleId !== cycle.id || typeof value.block !== "number" || !Number.isInteger(value.block) || value.block < 0 || value.block > 1200
+    || !isRecord(value.exercises) || !isRecord(value.baseSets)) return null;
+  if (Object.keys(value).length !== 8 || Object.keys(value).some(field => !["program", "templateVersion", "sessionId", "cycleId", "block", "advancedSlot", "baseSets", "exercises"].includes(field))) return null;
+  const template = WORKOUTS[workout.workoutId].pairs.flatMap(pair => pair.exercises);
+  if (Object.keys(value.exercises).length !== template.length || Object.keys(value.baseSets).length !== template.length || (value.advancedSlot !== null && !template.some(item => item.id === value.advancedSlot))) return null;
+  const exercises: SessionPrescription["exercises"] = {};
+  const baseSets: Record<string, number> = {};
+  for (const [index, item] of template.entries()) {
+    const raw = value.exercises[item.id];
+    const original = isFourDayKey(key) ? FOUR_DAY_EXERCISES[fourDayWorkoutId(key)].find(exercise => exercise.id === item.id)! : null;
+    const cap = original?.targetSets ?? 3, restSeconds = original?.restSeconds ?? (index < 4 ? 120 : 90);
+    const baseline = value.baseSets[item.id];
+    if (typeof baseline !== "number" || !Number.isInteger(baseline) || baseline < 1 || baseline > cap) return null;
+    baseSets[item.id] = baseline;
+    if (!isRecord(raw) || Object.keys(raw).length !== 4 || typeof raw.sets !== "number" || !Number.isInteger(raw.sets) || raw.sets < 1 || raw.sets > cap
+      || raw.sets < baseline || raw.reps !== item.reps || raw.restSeconds !== restSeconds || (raw.rir !== 2 && raw.rir !== 3)) return null;
+    exercises[item.id] = { sets: raw.sets, reps: item.reps, restSeconds, rir: raw.rir };
+  }
+  return { program: "variety", templateVersion: 1, sessionId: `${blockId}:${key}`, cycleId: cycle.id, block: value.block, advancedSlot: value.advancedSlot as string | null, baseSets, exercises };
+}
+
 export function sanitizeTrackerState(value: unknown): TrackerState | null {
   if (!isRecord(value)) return null;
-  if (typeof value.schemaVersion === "number" && value.schemaVersion > 6) return null;
+  if (value.schemaVersion !== undefined && (typeof value.schemaVersion !== "number" || !Number.isInteger(value.schemaVersion) || value.schemaVersion < 1 || value.schemaVersion > 9)) return null;
   const programVersion: 1 | 2 | 3 = value.programVersion === 1 ? 1 : value.programVersion === 2 ? 2 : 3;
 
   const startDate = value.startDate === null ? null : cleanIsoDate(value.startDate);
@@ -176,7 +198,11 @@ export function sanitizeTrackerState(value: unknown): TrackerState | null {
     return null;
   }
   const fourDayPlan = value.fourDayPlan == null ? null : cleanFourDayPlan(value.fourDayPlan);
-  if (value.fourDayPlan != null && (!fourDayPlan || value.schemaVersion !== 6 || !startDate || fourDayPlan.startsOn < startDate)) return null;
+  if (value.fourDayPlan != null && (!fourDayPlan || ![6, 7, 8, 9].includes(Number(value.schemaVersion)) || !startDate || fourDayPlan.startsOn < startDate)) return null;
+  if (value.schemaVersion === 9 && !Object.hasOwn(value, "trainingCycle")) return null;
+  const trainingCycle = value.trainingCycle == null ? null : value.schemaVersion === 9 ? cleanTrainingCycle(value.trainingCycle) : null;
+  if (value.trainingCycle != null && (!trainingCycle || !startDate || trainingCycle.startsOn < startDate)) return null;
+  const blockId = typeof value.blockId === "string" ? cleanText(value.blockId, 80) : startDate;
 
   const source = isRecord(value.workouts) ? value.workouts : {};
   const workouts: Record<string, WorkoutLog> = {};
@@ -185,12 +211,20 @@ export function sanitizeTrackerState(value: unknown): TrackerState | null {
     if (String(dayNumber) !== day) return null;
     if (isFourDayKey(dayNumber)) {
       if (!fourDayPlan || !isRecord(workout) || workout.workoutId !== fourDayWorkoutId(dayNumber)) return null;
-      const prescription = cleanPrescription(workout.prescription, dayNumber, fourDayPlan);
+      const cleaned = cleanWorkout(workout, dayNumber, programVersion);
+      const prescription = isRecord(workout.prescription) && workout.prescription.program === "variety" && trainingCycle
+        ? cleanVarietyPrescription(workout.prescription, dayNumber, trainingCycle, blockId, cleaned)
+        : cleanPrescription(workout.prescription, dayNumber, fourDayPlan);
       if (!prescription) return null;
       workouts[day] = { ...cleanWorkout(workout, dayNumber, programVersion), prescription };
     } else if (isTrainingDayNumber(dayNumber) && dayNumber <= 36_525) {
       if (isRecord(workout) && FOUR_DAY_ROTATION.includes(workout.workoutId as typeof FOUR_DAY_ROTATION[number])) return null;
       workouts[day] = cleanWorkout(workout, dayNumber, programVersion);
+      if (isRecord(workout) && workout.prescription !== undefined) {
+        const prescription = trainingCycle ? cleanVarietyPrescription(workout.prescription, dayNumber, trainingCycle, blockId, workouts[day]) : null;
+        if (!prescription) return null;
+        workouts[day].prescription = prescription;
+      }
     }
   }
 
@@ -210,15 +244,23 @@ export function sanitizeTrackerState(value: unknown): TrackerState | null {
     if (cleanIsoDate(date)) dailyMetrics[date] = cleanMetric(metric, profile.weightUnit);
   }
 
+  const equipment = value.equipment === undefined && ![7, 8, 9].includes(Number(value.schemaVersion)) ? defaultEquipment() : cleanEquipment(value.equipment, allowedExercises);
+  if (!equipment) return null;
+  if ([8, 9].includes(Number(value.schemaVersion)) && !Object.hasOwn(value,"cardio")) return null;
+  const cardio = value.cardio == null ? null : [8, 9].includes(Number(value.schemaVersion)) ? cleanCardio(value.cardio) : null;
+  if (value.cardio != null && !cardio) return null;
   const state: TrackerState = {
+    cardio,
+    trainingCycle,
+    equipment,
     fourDayPlan,
-    blockId: typeof value.blockId === "string" ? cleanText(value.blockId, 80) : startDate,
+    blockId,
     dailyMetrics,
     programVersion,
     profile,
     schedule,
     scheduleModifiedAt: cleanTimestamp(value.scheduleModifiedAt),
-    schemaVersion: 6,
+    schemaVersion: 9,
     startDate,
     workouts,
   };

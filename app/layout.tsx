@@ -17,9 +17,6 @@ export const metadata: Metadata = {
   description:
     "A shift-friendly, account-synced strength, recovery, and nutrition tracker with an ongoing workout calendar.",
   manifest: "/manifest.webmanifest",
-  other: {
-    "codex-preview": "development",
-  },
   icons: {
     apple: "/icons/apple-touch-icon.png",
     icon: "/favicon.svg",

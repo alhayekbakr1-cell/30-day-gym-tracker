@@ -1,3 +1,4 @@
+import { cardioSummary } from "./cardio-logic";
 import { isSessionKey, sessionNumberForKey } from "./tracker-logic";
 import type { TrackerState } from "./tracker-types";
 import {
@@ -68,6 +69,7 @@ export default function ProgressDashboard({ tracker }: { tracker: TrackerState }
   const workoutDays = Object.keys(tracker.workouts).map(Number).filter(day => isSessionKey(tracker, day)).sort((a, b) => a - b);
   const completed = workoutDays.filter((day) => tracker.workouts[String(day)]?.completed);
   const today = localIsoDate();
+  const cardio = cardioSummary(tracker.cardio,today);
   const due = tracker.startDate
     ? scheduledDaysInRange(tracker, isoDateOffset(today, -29), today)
     : [];
@@ -135,6 +137,7 @@ export default function ProgressDashboard({ tracker }: { tracker: TrackerState }
 
   return (
     <section className="card dashboard-card" id="progress-dashboard" aria-labelledby="progress-title">
+      {tracker.cardio && <p className="cardio-dashboard"><strong>Logged cardio · week {cardio.week} – {cardio.end}</strong><br/>{cardio.completed} recorded sessions · {cardio.minutes} actual minutes · {cardio.planned} planned/flexible visits · {cardio.plannedMinutes} target minutes. Only app-recorded cardio; separate from strength volume.{!Object.keys(tracker.cardio.sessions).length && " No cardio history yet."}</p>}
       <div className="section-heading dashboard-heading">
         <div>
           <p className="eyebrow">Your trends</p>

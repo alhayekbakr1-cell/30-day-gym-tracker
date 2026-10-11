@@ -1,29 +1,39 @@
+import { availableExercise } from "./equipment-logic";
+import { varietyForSession } from "./training-cycle";
 import type { SetLog, TrackerState, WorkoutLog } from "./tracker-types";
 import { convertLoad, formatLoad, numeric, previousPerformance, workoutForDay } from "./tracker-logic";
 import { EXERCISE_LIBRARY, WARMUP_ITEMS, workingSetsForDay } from "./workout-data";
 import { FOUR_DAY_EXERCISES, fourDayWorkoutId, isFourDayKey, type ExercisePrescription, type SessionPrescription } from "./four-day-data";
 
 const blankSet = (): SetLog => ({ done: false, load: "", reps: "", rir: "" });
-export function prescriptionForSession(state: TrackerState, day: number): SessionPrescription | undefined {
-  const saved = state.workouts[String(day)]?.prescription;
-  if (saved) return saved;
+function generatedSession(state: TrackerState, day: number): { prescription: SessionPrescription | undefined; substitutions: Record<string, string> } {
+  const saved = state.workouts[String(day)];
+  if (saved?.prescription) return { prescription: saved.prescription, substitutions: saved.substitutions };
   const plan = state.fourDayPlan;
-  if (!isFourDayKey(day) || !plan) return undefined;
-  const id = fourDayWorkoutId(day);
-  return { program: 4, templateVersion: 1, sessionId: `${plan.id}:${day}`,
-    exercises: Object.fromEntries(FOUR_DAY_EXERCISES[id].map(item => [item.id, { sets: plan.sets[id][item.id], reps: item.reps, restSeconds: item.restSeconds, rir: plan.rir }])) };
+  const fourDay = isFourDayKey(day) && plan ? { program: 4 as const, templateVersion: 1 as const, sessionId: `${plan.id}:${day}`,
+    exercises: Object.fromEntries(FOUR_DAY_EXERCISES[fourDayWorkoutId(day)].map(item => [item.id, { sets: plan.sets[fourDayWorkoutId(day)][item.id], reps: item.reps, restSeconds: item.restSeconds, rir: plan.rir }])) } : undefined;
+  const base = fourDay?.exercises ?? Object.fromEntries(workoutForDay(state, day).pairs.flatMap(pair => pair.exercises).map((item, index) => [item.id, { sets: workingSetsForDay(day, index, false), reps: item.reps, restSeconds: index < 4 ? 120 : 90, rir: 2 }]));
+  return varietyForSession(state, day, base) ?? { prescription: fourDay, substitutions: {} };
+}
+export function prescriptionForSession(state: TrackerState, day: number): SessionPrescription | undefined {
+  return generatedSession(state, day).prescription;
 }
 export function hydratedWorkoutLog(state: TrackerState, day: number): WorkoutLog {
   const saved = state.workouts[String(day)];
   const workout = workoutForDay(state, day);
+  const generated = generatedSession(state, day);
   const base: WorkoutLog = {
     completed: false, completedAt: null, lowSleep: false, loadUnit: state.profile.loadUnit,
     modifiedAt: new Date(0).toISOString(), note: "", readiness: { energy: "", sleepHours: "", soreness: "" },
     sets: Object.fromEntries(workout.pairs.flatMap(pair => pair.exercises).map(item => [item.id, [blankSet(), blankSet(), blankSet()]])),
     substitutions: {}, warmup: Object.fromEntries(WARMUP_ITEMS.map(item => [item.id, false])), workoutId: workout.id,
-    ...(isFourDayKey(day) ? { prescription: prescriptionForSession(state, day) } : {}),
+    ...(generated.prescription ? { prescription: generated.prescription } : {}),
   };
-  if (!saved) return base;
+  if (!saved) {
+    base.substitutions = generated.substitutions;
+    if (workout.id === "UB" && state.equipment.futureUpperBFlat && availableExercise("flat-db-bench", state.equipment)) base.substitutions["machine-press"] = "flat-db-bench";
+    return base;
+  }
   return { ...base, ...saved, readiness: { ...base.readiness, ...saved.readiness },
     sets: { ...base.sets, ...saved.sets }, warmup: { ...base.warmup, ...saved.warmup }, substitutions: { ...saved.substitutions } };
 }

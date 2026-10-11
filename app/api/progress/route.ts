@@ -5,12 +5,14 @@ import { sanitizeTrackerState } from "@/lib/tracker-validation";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   const user = await getChatGPTUser();
   if (!user) return Response.json({ error: "Sign in required" }, { status: 401 });
+  const expected = request.headers.get("x-gym-expected-account");
+  if (expected && expected !== user.email) return Response.json({ error: "Account changed. Reload." }, { status: 412 });
 
   try {
-    return Response.json(await readProgress(user.email));
+    return Response.json(await readProgress(user.email), { headers: { "Cache-Control": "private, no-store" } });
   } catch {
     return Response.json(
       { error: "Progress could not be loaded." },
@@ -22,6 +24,9 @@ export async function GET() {
 export async function PUT(request: Request) {
   const user = await getChatGPTUser();
   if (!user) return Response.json({ error: "Sign in required" }, { status: 401 });
+  const expected = request.headers.get("x-gym-expected-account");
+  if (expected !== user.email) return Response.json({ error: "Account changed. Reload." }, { status: 412 });
+  if (request.headers.get("origin") && request.headers.get("origin") !== new URL(request.url).origin) return Response.json({ error: "Use this site to save progress." }, { status: 403 });
 
   const contentLength = Number(request.headers.get("content-length") ?? 0);
   if (contentLength > 2_000_000) {

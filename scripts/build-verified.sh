@@ -84,5 +84,6 @@ PY
 }
 
 run_with_timeout "${vinext}" build
+node "${script_dir}/prepare-offline.mjs"
 
 "${script_dir}/validate-artifact.sh"

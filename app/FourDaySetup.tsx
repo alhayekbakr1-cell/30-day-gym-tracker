@@ -37,9 +37,10 @@ export default function FourDaySetup({ tracker, disabled, onActivate, onSets, on
         }}>{busy ? "Saving transition…" : "Save backup & switch to four days"}</button></div>
       <small>Allow at least two days after your latest saved session. Your completed and unfinished workouts remain available.</small>
     </> : <details className="four-day-volume">
-      <summary>Adjust future volume · {total} of 58 target sets</summary>
+      <summary>{tracker.trainingCycle?.enabled ? "Set future base volume" : "Adjust future volume"} · {total} of 58 target sets</summary>
       <p>Keep this starting dose for the first one or two weeks. Add one weekly set at a time when technique and performance hold up. These are practical defaults; you can stay below the target while progressing.</p>
-      <label className="four-day-effort">Working-set effort<select disabled={disabled} value={plan.rir} onChange={event => onEffort(event.target.value === "2" ? 2 : 3)}><option value="3">About 3 reps in reserve · transition</option><option value="2">About 2 reps in reserve · established training</option></select></label>
+      <label className="four-day-effort">Working-set effort<select disabled={disabled || !!tracker.trainingCycle?.enabled} value={plan.rir} onChange={event => onEffort(event.target.value === "2" ? 2 : 3)}><option value="3">About 3 reps in reserve · transition</option><option value="2">About 2 reps in reserve · established training</option></select></label>
+      {tracker.trainingCycle?.enabled && <p>Variety & progression controls future session effort within 2–3 RIR. Pause it there to use this manual effort setting.</p>}
       <div className="four-day-volume-grid">{FOUR_DAY_ROTATION.map(id => <fieldset key={id}><legend>{FOUR_DAY_NAMES[id]}</legend>{FOUR_DAY_EXERCISES[id].map(item => <div className="volume-adjuster" key={item.id}>
         <span>{item.name}<small>Target: {item.targetSets} sets</small></span><div>
           <button type="button" aria-label={`One fewer set of ${item.name} in ${FOUR_DAY_NAMES[id]}`} disabled={disabled || plan.sets[id][item.id] <= 1} onClick={() => onSets(id, item.id, plan.sets[id][item.id] - 1)}>−</button>
