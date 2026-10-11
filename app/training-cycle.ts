@@ -110,7 +110,10 @@ export function varietyForSession(state: TrackerState, day: number, base: Record
     const configured = base[item.id];
     const cap = isFourDayKey(day) ? FOUR_DAY_EXERCISES[fourDayWorkoutId(day)].find(exercise => exercise.id === item.id)!.targetSets : 3;
     const latest = earlier.find(([, log]) => (log.substitutions[item.id] ?? item.id) === id);
-    const last = latest && dayDifference(scheduledDate(state, Number(latest[0]))!, date) <= 28 ? latest[1].prescription?.exercises[item.id] : undefined;
+    const prior = latest && dayDifference(scheduledDate(state, Number(latest[0]))!, date) <= 28 ? latest[1].prescription : undefined;
+    // An explicit base-dose change starts from the chosen dose. A later note
+    // edit must not make an old automatic increase override that choice.
+    const last = prior?.program === "variety" && prior.baseSets[item.id] === configured.sets ? prior.exercises[item.id] : undefined;
     const reps = id === item.id ? configured.reps : EXERCISE_LIBRARY[id].reps;
     const target = { ...configured, reps, sets: Math.min(cap, Math.max(configured.sets, last?.sets ?? 0)), rir: last?.rir ?? 3 };
     const ready = block > 0 && mayAdvance(state, day, item.id, id, target, cycle.startsOn);
@@ -124,6 +127,7 @@ export function varietyForSession(state: TrackerState, day: number, base: Record
     // the frozen substitution resolves its actual rep/duration range.
     exercises[item.id] = { ...target, reps: configured.reps };
   }
-  const prescription: VarietyPrescription = { program: "variety", templateVersion: 1, sessionId: `${state.blockId}:${day}`, cycleId: cycle.id, block, advancedSlot, exercises };
+  const prescription: VarietyPrescription = { program: "variety", templateVersion: 1, sessionId: `${state.blockId}:${day}`, cycleId: cycle.id, block, advancedSlot,
+    baseSets: Object.fromEntries(Object.entries(base).map(([slot, item]) => [slot, item.sets])), exercises };
   return { prescription, substitutions };
 }

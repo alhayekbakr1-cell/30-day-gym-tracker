@@ -132,6 +132,20 @@ test("returning after a gap does not inherit a stale higher dose or tighter rese
   assert.equal(afterGap.prescription.exercises["flat-db-bench"].rir, 3);
   assert.equal(afterGap.prescription.exercises["flat-db-bench"].sets, 2);
 });
+test("explicit base-volume reductions override automatic dose carry without rewriting started sessions", () => {
+  let value = complete(complete(enabled(true), first + 28), first + 32);
+  for (let offset = 36; offset <= 68; offset += 4) value = complete(value, first + offset, { rir: "2" });
+  const started = sessions.hydratedWorkoutLog(value, first + 72); value.workouts[first + 72] = started;
+  assert.equal(started.prescription.exercises["flat-db-bench"].sets, 3);
+  value = logic.changeFourDaySets(value, "UA", "flat-db-bench", 1, "2027-02-09T12:00:00Z");
+  // Even editing the earlier note afterwards cannot revive its old dose.
+  value.workouts[first + 72].modifiedAt = "2027-02-10T12:00:00Z";
+  const next = sessions.hydratedWorkoutLog(value, first + 76);
+  assert.equal(next.prescription.exercises["flat-db-bench"].sets, 1);
+  assert.equal(next.prescription.exercises["flat-db-bench"].rir, 3);
+  assert.equal(sessions.hydratedWorkoutLog(value, first + 72).prescription.exercises["flat-db-bench"].sets, 3);
+  assert.deepEqual(parseBackup(serializeBackup(value)), value);
+});
 test("historical kg/lb retain their values while progression compares converted loads", () => {
   const value = complete(complete(enabled(true), first + 28, { load: "25", unit: "kg" }), first + 32, { load: "55.12", unit: "lb" });
   assert.equal(sessions.hydratedWorkoutLog(value, first + 36).prescription.exercises["flat-db-bench"].rir, 2);

@@ -168,20 +168,24 @@ function cleanPrescription(value: unknown, key: number, plan: FourDayPlan): Sess
 function cleanVarietyPrescription(value: unknown, key: number, cycle: TrainingCycle, blockId: string | null, workout: WorkoutLog): SessionPrescription | null {
   if (!isRecord(value) || value.program !== "variety" || value.templateVersion !== 1 || value.sessionId !== `${blockId}:${key}`
     || value.cycleId !== cycle.id || typeof value.block !== "number" || !Number.isInteger(value.block) || value.block < 0 || value.block > 1200
-    || !isRecord(value.exercises)) return null;
-  if (Object.keys(value).length !== 7 || Object.keys(value).some(field => !["program", "templateVersion", "sessionId", "cycleId", "block", "advancedSlot", "exercises"].includes(field))) return null;
+    || !isRecord(value.exercises) || !isRecord(value.baseSets)) return null;
+  if (Object.keys(value).length !== 8 || Object.keys(value).some(field => !["program", "templateVersion", "sessionId", "cycleId", "block", "advancedSlot", "baseSets", "exercises"].includes(field))) return null;
   const template = WORKOUTS[workout.workoutId].pairs.flatMap(pair => pair.exercises);
-  if (Object.keys(value.exercises).length !== template.length || (value.advancedSlot !== null && !template.some(item => item.id === value.advancedSlot))) return null;
+  if (Object.keys(value.exercises).length !== template.length || Object.keys(value.baseSets).length !== template.length || (value.advancedSlot !== null && !template.some(item => item.id === value.advancedSlot))) return null;
   const exercises: SessionPrescription["exercises"] = {};
+  const baseSets: Record<string, number> = {};
   for (const [index, item] of template.entries()) {
     const raw = value.exercises[item.id];
     const original = isFourDayKey(key) ? FOUR_DAY_EXERCISES[fourDayWorkoutId(key)].find(exercise => exercise.id === item.id)! : null;
     const cap = original?.targetSets ?? 3, restSeconds = original?.restSeconds ?? (index < 4 ? 120 : 90);
+    const baseline = value.baseSets[item.id];
+    if (typeof baseline !== "number" || !Number.isInteger(baseline) || baseline < 1 || baseline > cap) return null;
+    baseSets[item.id] = baseline;
     if (!isRecord(raw) || Object.keys(raw).length !== 4 || typeof raw.sets !== "number" || !Number.isInteger(raw.sets) || raw.sets < 1 || raw.sets > cap
-      || raw.reps !== item.reps || raw.restSeconds !== restSeconds || (raw.rir !== 2 && raw.rir !== 3)) return null;
+      || raw.sets < baseline || raw.reps !== item.reps || raw.restSeconds !== restSeconds || (raw.rir !== 2 && raw.rir !== 3)) return null;
     exercises[item.id] = { sets: raw.sets, reps: item.reps, restSeconds, rir: raw.rir };
   }
-  return { program: "variety", templateVersion: 1, sessionId: `${blockId}:${key}`, cycleId: cycle.id, block: value.block, advancedSlot: value.advancedSlot as string | null, exercises };
+  return { program: "variety", templateVersion: 1, sessionId: `${blockId}:${key}`, cycleId: cycle.id, block: value.block, advancedSlot: value.advancedSlot as string | null, baseSets, exercises };
 }
 
 export function sanitizeTrackerState(value: unknown): TrackerState | null {

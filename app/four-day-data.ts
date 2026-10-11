@@ -61,6 +61,7 @@ export type FourDayPrescription = { program: 4; templateVersion: 1; sessionId: s
 export type VarietyPrescription = {
   program: "variety"; templateVersion: 1; sessionId: string;
   cycleId: string; block: number; advancedSlot: string | null;
+  baseSets: Record<string, number>;
   exercises: Record<string, ExercisePrescription>;
 };
 export type SessionPrescription = FourDayPrescription | VarietyPrescription;
